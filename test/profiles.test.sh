@@ -9,9 +9,10 @@ fail() { printf 'FAIL: %s: %s\n' "$1" "$2" >&2; }
 check_profiles() {
   local root=$1 file line key value provider profile role name tools wildcard in_header
   local -a tool_tokens
+  local mode
   local count=0 errors=0
   for file in "$root"/**/*.md; do
-    provider= profile= role= name= tools=false wildcard=false in_header=false
+    mode= provider= profile= role= name= tools=false wildcard=false in_header=false
     while IFS= read -r line || [[ -n "$line" ]]; do
       if [[ "$line" = --- ]]; then
         if $in_header; then break; fi
@@ -33,6 +34,7 @@ check_profiles() {
           codexProfile) profile=$value ;;
           role) role=$value ;;
           name) name=$value ;;
+          permissionMode) mode=$value ;;
         esac
       elif $tools; then
         value=${line//\"/}; value=${value//\'/}
@@ -60,6 +62,10 @@ check_profiles() {
         fail "$file" 'codex reviewer requires codexProfile: cao-ro'; errors=$((errors + 1))
       fi
     fi
+    # 既定の --dangerously-skip-permissions を避け、危険な操作を auto モードの分類器に止めさせる
+    if [[ "$provider" = claude_code && "$mode" != auto ]]; then
+      fail "$file" 'claude_code requires permissionMode: auto'; errors=$((errors + 1))
+    fi
     if $wildcard; then
       fail "$file" 'allowedTools must not contain "*"'; errors=$((errors + 1))
     fi
@@ -81,12 +87,13 @@ self_check() {
   trap 'rm -r -- "$profiles_tmp"' EXIT
   mkdir -p "$profiles_tmp/agents/nested"
   source=$(< "$repo/agents/codex/codex.md")
-  for variant in valid scoped body provider missing reviewer wildcard inline writer retrospector other_retrospector named_reviewer role_only near_suffix; do
+  for variant in valid scoped body provider missing reviewer wildcard inline writer retrospector other_retrospector named_reviewer role_only near_suffix claude_mode; do
     mutated=$source
     expected=''
     case "$variant" in
       scoped) mutated=${source/codexProfile: cao/$'codexProfile: "cao"\nallowedTools: ["fs_*", "@builtin"]'} ;;
       body) mutated=$source$'\nprovider: kiro\nallowedTools: ["*"]\nrole: reviewer' ;;
+      claude_mode) mutated=${source/provider: codex/provider: claude_code}; expected='claude_code requires permissionMode' ;;
       provider) mutated=${source/provider: codex/provider: kiro}; expected='provider must be' ;;
       missing) mutated=${source/codexProfile: cao/}; expected='codex requires codexProfile' ;;
       reviewer) mutated=${source/role: developer/role: reviewer}; expected='codex reviewer requires' ;;
@@ -137,4 +144,10 @@ else
   [[ $# -eq 0 ]] || { echo 'Usage: profiles.test.sh [--check agents-directory]' >&2; exit 1; }
   self_check
   check_profiles "$repo/agents"
+  # 予備リーダーは主担当の手作業コピー。本文（最初の ## 以降）はスキルの使い方の 1 行以外そろえる
+  lead_body() { sed -n '/^## /,$p' "$1" | grep -v 'load_skill'; }
+  for f in "$repo"/agents/team/{agy_opus,codex_sol}_lead.md; do
+    diff <(lead_body "$repo/agents/team/claude_opus_lead.md") <(lead_body "$f") >&2 || { fail "$f" 'lead body differs from claude_opus_lead.md'; exit 1; }
+  done
+  echo 'PASS: lead bodies in sync'
 fi

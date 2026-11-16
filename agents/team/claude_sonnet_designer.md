@@ -2,6 +2,7 @@
 name: claude_sonnet_designer
 description: "[Claude Sonnet] Designer - UI/UX direction, design specs, design system, a11y, UX copy"
 provider: claude_code
+permissionMode: auto
 model: "claude-sonnet-5-5"
 claudeConfig:
   effort: medium

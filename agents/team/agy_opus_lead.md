@@ -131,7 +131,7 @@ assign 時の決まり:
 - 結果を受けたら diff とテストを確認してから `delete_terminal` で片付ける。ただしユーザーが「残して」「画面で見たい」と言った worker は、ユーザーの指示まで残す。
 - 報告の最後に、残っている worker の terminal_id 一覧を書く（なければ「なし」）。
 
-assign した worker は tmux の `cao-agents` ウィンドウ（Ctrl-b 1）で見られる。
+assign した worker の画面は、herdr ならワークスペース `cao-<セッション名>` 内のタブ、tmux なら `cao-agents` ウィンドウ（Ctrl-b 1）で見られる。
 
 ## 分割して並列に進める（fan-out）か
 

@@ -2,6 +2,7 @@
 name: claude_sonnet_writer
 description: "[Claude Sonnet] Fallback writer - for agy_argon_writer"
 provider: claude_code
+permissionMode: auto
 model: "claude-sonnet-5-5"
 claudeConfig:
   effort: low

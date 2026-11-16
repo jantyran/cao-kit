@@ -2,6 +2,7 @@
 name: claude_sonnet_tester
 description: "[Claude Sonnet] Tester - acceptance tests before implementation"
 provider: claude_code
+permissionMode: auto
 model: claude-sonnet-5-5
 claudeConfig:
   effort: medium

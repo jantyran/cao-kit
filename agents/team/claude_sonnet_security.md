@@ -2,6 +2,7 @@
 name: claude_sonnet_security
 description: "[Claude Sonnet] Fallback security - for codex_sol_security (read-only)"
 provider: claude_code
+permissionMode: auto
 model: "claude-sonnet-5-5"
 claudeConfig:
   effort: medium

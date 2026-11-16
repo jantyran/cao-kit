@@ -2,6 +2,7 @@
 name: claude_sonnet_docmaker
 description: "[Claude Sonnet] Docmaker - slides, docx, xlsx, pdf, diagrams"
 provider: claude_code
+permissionMode: auto
 model: "claude-sonnet-5-5"
 claudeConfig:
   effort: medium

@@ -2,6 +2,7 @@
 name: claude_sonnet_reviewer
 description: "[Claude Sonnet] Reviewer - read-only code review for correctness, design fit, security, tests"
 provider: claude_code
+permissionMode: auto
 model: claude-sonnet-5-5
 claudeConfig:
   effort: medium

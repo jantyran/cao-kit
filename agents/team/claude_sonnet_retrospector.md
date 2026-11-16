@@ -2,6 +2,7 @@
 name: claude_sonnet_retrospector
 description: "[Claude Sonnet] Retrospector - distills outcomes into lessons for the team"
 provider: claude_code
+permissionMode: auto
 model: "claude-sonnet-5-5"
 claudeConfig:
   effort: low

@@ -22,7 +22,7 @@
 | codex | ツール制限は強制されない。**サンドボックスで強制** | `codexProfile: cao-ro`（`~/.codex/cao-ro.config.toml` で `sandbox_mode = "read-only"`） |
 | antigravity_cli | 強制されない（プロンプトだけ） | 読み取り専用が必須の役には使わない。調査・文章など「書いても実害が小さい」役に限る |
 
-書く役の Codex は従来どおり `codexProfile: cao`（workspace-write、ネット遮断）。
+書く役の Codex は従来どおり `codexProfile: cao`（workspace-write、ネット遮断）。Claude Code の全プロファイルは `permissionMode: auto`（CAO 既定の `--dangerously-skip-permissions` の代わりに、危険な操作を分類器が止める）。agy は CAO が常に `--dangerously-skip-permissions` で起動し、サンドボックスを指定する手段がないため無制限で動く（未対策）。
 
 ## 標準の流れ（P3）
 
@@ -44,7 +44,7 @@
 | `handoff`（既定） | 結果を受けてすぐ次に進む 1 件（調査・レビュー・小さな実装・テスト作成）。終わると worker の画面は自動で消える |
 | `assign` | (1) 互いに独立した仕事を並列に進める (2) 長い作業（目安 10 分超）で、待つ間にリーダーが別の作業を進めたい (3) ユーザーが「作業を画面で見たい」「worker を残して」と言ったとき |
 
-`assign` の依頼文には `send_message` での完了報告先（自分の terminal_id、環境変数 `CAO_TERMINAL_ID` の値）を必ず書く。結果を受けて diff とテストを確認したら `delete_terminal` で片付けるが、ユーザーが残すよう指定した worker は指示まで残す。報告の最後に残っている worker の terminal_id 一覧を書く（なければ「なし」）。worker の画面は tmux の `cao-agents` ウィンドウ（Ctrl-b 1）で見られる。
+`assign` の依頼文には `send_message` での完了報告先（自分の terminal_id、環境変数 `CAO_TERMINAL_ID` の値）を必ず書く。結果を受けて diff とテストを確認したら `delete_terminal` で片付けるが、ユーザーが残すよう指定した worker は指示まで残す。報告の最後に残っている worker の terminal_id 一覧を書く（なければ「なし」）。worker の画面は herdr ならワークスペース `cao-<セッション名>` 内のタブ、tmux なら `cao-agents` ウィンドウ（Ctrl-b 1）で見られる。
 
 ## 分割して並列に進めるか
 
