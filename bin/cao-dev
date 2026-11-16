@@ -1,0 +1,87 @@
+#!/usr/bin/env bash
+# cao-dev: ~/mypark/<project> で Claude(リーダー) + Codex(実装) + agy(調査・文章) の CAO セッションを起動
+#   cao-dev                           ~/mypark/<project> 内なら、そのプロジェクトで起動
+#   cao-dev <project>                 対話モード（tmux / herdr にアタッチ）
+#   cao-dev <project> "<依頼内容>"     ヘッドレスで依頼を投げて非同期実行
+#   cao-dev --lead agy_opus_lead [project]   リーダーを予備に差し替えて起動
+#   cao-dev -l | --list               プロジェクト一覧
+set -euo pipefail
+MYPARK="${MYPARK_DIR:-$HOME/mypark}"
+PROFILE="${CAO_DEV_LEAD:-claude_opus_lead}"
+
+usage() { sed -n '2,7p' "$0" | sed 's/^# \{0,1\}//'; }
+# --lead <profile> でリーダーを差し替え（利用上限時: agy_opus_lead → codex_sol_lead）
+if [[ "${1:-}" == "--lead" ]]; then
+  [[ -n "${2:-}" ]] || { echo "--lead にプロファイル名を指定してください（例: agy_opus_lead）" >&2; exit 1; }
+  PROFILE="$2"; shift 2
+fi
+
+# 引数なしで ~/mypark/<project> 配下にいれば、そのプロジェクトを使う
+if [[ $# -eq 0 ]]; then
+  case "$PWD/" in
+    "$MYPARK"/*/*) set -- "$(echo "${PWD#$MYPARK/}" | cut -d/ -f1)" ;;
+    *) usage; exit 0 ;;
+  esac
+fi
+case "${1:-}" in
+  -h|--help) usage; exit 0 ;;
+  -l|--list) ls -1d "$MYPARK"/*/ | xargs -n1 basename | grep -v '^z_archived$'; exit 0 ;;
+esac
+
+proj="$1"; shift
+dir="$MYPARK/$proj"
+[[ -d "$dir" ]] || { echo "プロジェクトが見つかりません: $dir" >&2; echo "候補:" >&2; ls -1d "$MYPARK"/*/ | xargs -n1 basename | sed 's/^/  /' >&2; exit 1; }
+
+# Codex の「Trust this folder?」ダイアログでタスク配送が失敗するのを防ぐ
+CODEX_CFG="$HOME/.codex/config.toml"
+if [[ -f "$CODEX_CFG" ]] && ! grep -qF "[projects.\"$dir\"]" "$CODEX_CFG"; then
+  printf '\n[projects."%s"]\ntrust_level = "trusted"\n' "$dir" >> "$CODEX_CFG"
+  echo "Codex trust に追加: $dir"
+fi
+
+# 指示書置き場 .cao/ を git の差分に出さない（ローカル除外のみ・コミットされない）
+if [[ -d "$dir/.git" ]] && ! grep -qx '.cao/' "$dir/.git/info/exclude" 2>/dev/null; then
+  echo '.cao/' >> "$dir/.git/info/exclude"
+fi
+
+curl -sf http://localhost:9889/health >/dev/null || {
+  echo "cao-server が起動していません。別ターミナルで 'cao-server' を起動してください。" >&2; exit 1; }
+
+# 端末バックエンド（cao config set terminal.backend tmux|herdr）
+BACKEND="$(cao config get terminal.backend 2>/dev/null | tr -d '"')"
+HERDR_SESSION="$(cao config get terminal.herdr_session 2>/dev/null | tr -d '"')"; HERDR_SESSION="${HERDR_SESSION:-cao}"
+
+# 多重化端末の内側からは切り替え、外からは attach
+attach_or_switch() {
+  if [[ "$BACKEND" == herdr ]]; then
+    local ws
+    ws=$(herdr --session "$HERDR_SESSION" workspace list | jq -r --arg n "$1" '.result.workspaces[] | select(.label==$n) | .workspace_id' | head -1)
+    [[ -n "$ws" ]] || { echo "herdr ワークスペースが見つかりません: $1" >&2; exit 1; }
+    herdr --session "$HERDR_SESSION" workspace focus "$ws" >/dev/null
+    [[ -n "${HERDR_PANE_ID:-}" ]] && exit 0  # herdr 内なら focus だけで切り替わる
+    exec herdr --session "$HERDR_SESSION"
+  fi
+  if [[ -n "${TMUX:-}" ]]; then exec tmux switch-client -t "$1"; else exec tmux attach -t "$1"; fi
+}
+
+suffix=""; [[ "$PROFILE" != "claude_opus_lead" ]] && suffix="-${PROFILE%%_*}"
+name="mypark-$(echo "$proj" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9\n-' '-')$suffix"
+if cao session list 2>/dev/null | grep -q "cao-$name\b"; then
+  echo "既存セッション cao-$name があります。" >&2
+  if [[ $# -gt 0 ]]; then exec cao session send "cao-$name" "$*" --async; fi
+  attach_or_switch "cao-$name"
+fi
+
+if [[ $# -gt 0 ]]; then
+  cao launch --agents "$PROFILE" --session-name "$name" --working-directory "$dir" \
+    --headless --auto-approve --async "$*"
+  echo "状況確認: cao session status cao-$name --workers / 接続: cao-dev $proj"
+else
+  if [[ -n "${TMUX:-}${HERDR_PANE_ID:-}" ]]; then
+    # tmux/herdr 内ではネスト不可のため、ヘッドレス起動してからセッションを切り替える
+    cao launch --agents "$PROFILE" --session-name "$name" --working-directory "$dir" --headless --auto-approve
+    attach_or_switch "cao-$name"
+  else
+    exec cao launch --agents "$PROFILE" --session-name "$name" --working-directory "$dir" --auto-approve
+  fi
+fi

@@ -1,0 +1,5 @@
+# CAO から起動する Codex 用（cao の agent profile で codexProfile: cao）。
+# --yolo の代わり: 承認は自動レビューに回し（= --approve-for-me）、サンドボックスは workspace-write を維持。
+approvals_reviewer = "auto_review"
+approval_policy = "on-request"
+sandbox_mode = "workspace-write"

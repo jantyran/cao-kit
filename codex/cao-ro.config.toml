@@ -1,0 +1,6 @@
+# CAO のレビュー・調査・振り返り担当用（読み取り専用、承認待ちなし）。
+approval_policy = "never"
+sandbox_mode = "read-only"
+
+[projects."/path/to/project/.cao/rotest"]
+trust_level = "trusted"

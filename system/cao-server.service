@@ -1,0 +1,15 @@
+[Unit]
+Description=CLI Agent Orchestrator server (cao-server)
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+Environment="CAO_HOME_DIR=@CAO_HOME_DIR@"
+ExecStart=%h/.local/bin/cao-server --host @LOOPBACK@ --port 9889
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target
