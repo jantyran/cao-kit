@@ -64,17 +64,22 @@ rm "$tmp/bin/codex"
 VER=1 "$repo/bin/cao-doctor" --brief > "$tmp/out" || true
 check grep -q 'codex が見つかりません' "$tmp/out"
 
-# --- cao-dev: 置き場の外（ホーム直下・パス指定）でも起動し、セッション名は親フォルダ名から作る
-mkdir -p "$tmp/dev/bin" "$tmp/home/projects/app" "$tmp/home/side" "$tmp/home/x/deep"
-printf '#!/bin/sh\n[ "$1" = launch ] && echo "LAUNCH $*"\nexit 0\n' > "$tmp/dev/bin/cao"
-printf '#!/bin/sh\nexit 0\n' > "$tmp/dev/bin/curl"
+# --- cao-dev: 置き場の外（ホーム直下・パス指定）でも起動し、セッション名は cao-<プロジェクト名>
+mkdir -p "$tmp/dev/bin" "$tmp/home/projects/app" "$tmp/home/side" "$tmp/home/x/deep" "$tmp/home/x/app"
+# 偽の cao: launch は引数を表示、session list は DEV_SESSIONS を表示
+printf '#!/bin/sh\n[ "$1" = launch ] && echo "LAUNCH $*"\n[ "$1 $2" = "session list" ] && printf "%%s\\n" "$DEV_SESSIONS"\n[ "$1 $2" = "session send" ] && echo "SEND $3"\nexit 0\n' > "$tmp/dev/bin/cao"
+# 偽の curl: /sessions/ では、既存セッションの作業フォルダとして DEV_WD を返す
+printf '#!/bin/sh\ncase "$*" in *sessions/*) printf "{\\"terminals\\":[{\\"working_directory\\":\\"%%s\\"}]}" "$DEV_WD" ;; esac\nexit 0\n' > "$tmp/dev/bin/curl"
 chmod +x "$tmp/dev/bin/"*
 dev() { HOME="$tmp/home" CAO_DEV_ROOT="$tmp/home/projects" PATH="$tmp/dev/bin:/usr/bin:/bin" TMUX= HERDR_PANE_ID= "$repo/bin/cao-dev" "$@"; }
-check grep -q -- "--session-name projects-app --working-directory $tmp/home/projects/app " <(dev app 'do')
-check grep -q -- "--session-name home-side --working-directory $tmp/home/side " <(dev side 'do')
-check grep -q -- "--session-name x-deep --working-directory $tmp/home/x/deep " <(dev "$tmp/home/x/deep" 'do')
-check grep -q -- "--session-name x-deep " <(cd "$tmp/home/x" && dev ./deep 'do')
+check grep -q -- "--session-name app --working-directory $tmp/home/projects/app " <(dev app 'do')
+check grep -q -- "--session-name side --working-directory $tmp/home/side " <(dev side 'do')
+check grep -q -- "--session-name deep --working-directory $tmp/home/x/deep " <(dev "$tmp/home/x/deep" 'do')
+check grep -q -- "--session-name deep " <(cd "$tmp/home/x" && dev ./deep 'do')
 if dev nothing 'do' > /dev/null 2>&1; then echo 'FAIL: unknown project accepted' >&2; exit 1; fi
 if dev "$tmp/home" 'do' > /dev/null 2>&1; then echo 'FAIL: home accepted' >&2; exit 1; fi
+# 同じ名前のセッションがあれば、同じフォルダなら追記、別のフォルダならエラー
+check grep -q 'SEND cao-app' <(DEV_SESSIONS='cao-app  x' DEV_WD="$tmp/home/projects/app" dev app 'more' 2>/dev/null)
+if DEV_SESSIONS='cao-app  x' DEV_WD="$tmp/home/projects/app" dev "$tmp/home/x/app" 'more' > /dev/null 2>&1; then echo 'FAIL: name clash accepted' >&2; exit 1; fi
 
 printf 'PASS: %s checks\n' "$checks"

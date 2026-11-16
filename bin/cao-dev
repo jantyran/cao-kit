@@ -85,11 +85,14 @@ attach_or_switch() {
 }
 
 suffix=""; [[ "$PROFILE" != "claude_opus_lead" ]] && suffix="-${PROFILE%%_*}"
-# セッション名は「親フォルダ名-プロジェクト名」（例: cao-projects-myapp）。ホーム直下は home
-slug() { echo "$1" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9\n-' '-'; }
-parent=$(dirname -- "$dir"); [[ "$parent" == "$HOME" ]] && parent=home
-name="$(slug "$(basename -- "$parent")")-$(slug "$proj")$suffix"
-if cao session list 2>/dev/null | grep -q "cao-$name\b"; then
+# セッション名は cao-<プロジェクト名>（CAO が cao- を付ける）
+name="$(echo "$proj" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9\n-' '-')$suffix"
+if cao session list 2>/dev/null | grep -q "^cao-$name\b"; then
+  # 同じ名前の別フォルダのプロジェクトに誤って接続しないよう、作業フォルダを確かめる
+  other=$(curl -sf "http://localhost:9889/sessions/cao-$name" | python3 -c 'import json,sys; t=json.load(sys.stdin)["terminals"]; print(t[0]["working_directory"] if t else "")' || true)
+  if [[ -n "$other" && "$other" != "$dir" ]]; then
+    echo "セッション cao-$name は別のフォルダ（$other）で動いています。そちらを止めるか、フォルダ名を変えてください。" >&2; exit 1
+  fi
   echo "既存セッション cao-$name があります。" >&2
   if [[ $# -gt 0 ]]; then exec cao session send "cao-$name" "$*" --async; fi
   attach_or_switch "cao-$name"

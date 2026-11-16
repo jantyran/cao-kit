@@ -73,11 +73,11 @@ cao-dev --lead agy_opus_lead myapp        # Claude が利用上限のとき、�
 
 | やりたいこと | コマンド（`~/code/myapp` の場合） |
 |---|---|
-| 進み具合を見る | `cao session status cao-code-myapp --workers` |
+| 進み具合を見る | `cao session status cao-myapp --workers` |
 | 追加で依頼する | `cao-dev myapp "続けてテストも足して"` |
-| セッションを終える | `cao shutdown --session cao-code-myapp` |
+| セッションを終える | `cao shutdown --session cao-myapp` |
 
-セッション名は `cao-<置き場のフォルダ名>-<プロジェクト名>` です。
+セッション名は `cao-<プロジェクト名>` です。別のフォルダにある同じ名前のプロジェクトのセッションが動いていると、取り違えないようにエラーで止まります。
 
 ### 困ったとき・後から調べたいとき
 
