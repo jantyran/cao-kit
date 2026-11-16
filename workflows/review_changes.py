@@ -24,7 +24,7 @@ summary = step(
     recovery="idempotent",
 )
 
-# 2. 要約を踏まえてレビュー（Claude Sonnet、読み取り専用ロール）
+# 2. 要約を踏まえてレビュー（Codex Sol、読み取り専用のサンドボックス）
 review = step(
     provider="codex",
     agent="codex_sol_reviewer",
