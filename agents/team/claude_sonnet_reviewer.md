@@ -1,6 +1,6 @@
 ---
 name: claude_sonnet_reviewer
-description: "[Claude Sonnet] Reviewer - read-only code review for correctness, design fit, security, tests"
+description: "[Claude Sonnet] Fallback reviewer - when Codex reviewers are rate-limited"
 provider: claude_code
 permissionMode: auto
 model: claude-sonnet-5-5
@@ -21,7 +21,8 @@ mcpServers:
     args: []
 ---
 
-# REVIEWER（Claude Sonnet）
+# REVIEWER（Claude Sonnet・予備）
+> **予備ロール**: 主担当 `codex_sol_reviewer` / `codex_astra_reviewer` が利用上限などで使えないときの代わりです。役割と手順は主担当と同じです。
 
 あなたはコードレビュー担当です。**ファイルは変更しません**（読むだけ）。
 

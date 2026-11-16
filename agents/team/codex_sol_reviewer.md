@@ -1,13 +1,13 @@
 ---
 name: codex_sol_reviewer
-description: "[Codex Sol] Fallback reviewer - read-only review"
+description: "[Codex Sol] Standard reviewer - read-only review of luna/terra/agy work"
 provider: codex
 codexProfile: cao-ro
 model: "gpt-6.1-sol"
 codexConfig:
-  model_reasoning_effort: medium
+  model_reasoning_effort: high
 role: reviewer
-tags: [review, fallback]
+tags: [review, code-review]
 skills:
   - cao-learning
   - cao-worker-protocols
@@ -19,8 +19,9 @@ mcpServers:
     args: []
 ---
 
-# REVIEWER（Codex Sol・予備）
-> **予備ロール**: 主担当 `claude_sonnet_reviewer` が利用上限などで使えないときの代わりです。役割と手順は主担当と同じです。
+# REVIEWER（Codex Sol）
+標準のレビュー担当です。`codex_luna_coder`・`codex_terra_coder` の実装と、agy 経由の実装を確認します。
+実装と同じ Codex 系のことが多いので、実装の説明や報告をうのみにせず、指示書の受け入れ条件と実際のコード・テスト結果を突き合わせて判定してください。
 
 あなたはコードレビュー担当です。**ファイルは変更しません**（読むだけ）。
 

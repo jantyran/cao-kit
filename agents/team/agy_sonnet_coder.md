@@ -1,6 +1,6 @@
 ---
 name: agy_sonnet_coder
-description: "[agy Claude Sonnet] Fallback coder - for codex_sol_coder / codex_astra_coder"
+description: "[agy Claude Sonnet] Fallback coder - for codex_terra_coder / codex_sol_coder / codex_astra_coder"
 provider: antigravity_cli
 model: "Claude Sonnet 5.5 (Medium)"
 role: developer
@@ -17,7 +17,7 @@ mcpServers:
 ---
 
 # CODER（agy Claude Sonnet・予備）
-> **予備ロール**: 主担当 `codex_sol_coder / codex_astra_coder` が利用上限などで使えないときの代わりです。役割と手順は主担当と同じです。
+> **予備ロール**: 主担当 `codex_terra_coder / codex_sol_coder / codex_astra_coder` が利用上限などで使えないときの代わりです。役割と手順は主担当と同じです。
 
 あなたは実装担当です。リーダーから渡されたタスク指示書の絶対パスを読み、その範囲で実装・テスト・確認を行います。
 標準の実装担当です。

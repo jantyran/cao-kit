@@ -11,14 +11,14 @@
                   │  設計して、仕事を振り分ける
                   ├─> 調査（agy）        … 調べて要約だけ返す
                   ├─> 実装（Codex）      … コードとテストを書く（サンドボックス内）
-                  ├─> レビュー（Claude） … 実装とは別の AI が確認（読み取り専用）
+                  ├─> レビュー（Codex）  … 実装より上の格が独立して確認（読み取り専用）
                   └─> 文章・資料（agy / Claude）
                   │
                   └─ diff とテスト結果を自分で確かめてから、あなたに報告
 ```
 
 - **足りる中で一番安いモデルを使う**：小さな修正は軽いモデル、難しい不具合だけ上位モデル。
-- **書く役と確かめる役を分ける**：レビュー担当は実装と別系統の AI で、ファイルを書けない設定で動きます。
+- **書く役と確かめる役を分ける**：レビュー担当は実装より上の格のモデル（terra の実装を sol が、sol の実装を astra が）で、ファイルを書けない設定で動きます。Claude のトークンを節約するため、Claude のレビュー担当は予備です。
 - **利用上限への備え**：主な役割ごとに別の AI の予備があります（リーダーは Claude → agy → Codex）。
 
 ロールの詳しい設計と根拠は [docs/roles.md](docs/roles.md) にあります。
@@ -118,8 +118,8 @@ cp local.env.example local.env
 変えたいプロファイルを `local/agents/` にコピーして編集します。
 
 ```bash
-cp agents/team/codex_sol_coder.md local/agents/
-vi local/agents/codex_sol_coder.md        # モデル・指示などを自由に変える
+cp agents/team/codex_terra_coder.md local/agents/
+vi local/agents/codex_terra_coder.md        # モデル・指示などを自由に変える
 ```
 
 元に戻すときは、そのファイルを消すだけです。動いているセッションには、起動し直すと反映されます。
@@ -142,13 +142,13 @@ cao-models replace --local gpt-6.1-sol 新しい名前
 
 ### まずは少ない担当で始める
 
-担当は 27 体いますが、全部を使う必要はありません。リーダーは仕事に合わせて選ぶので、最初は次の 4 役が動けば十分です。ほかの担当は、必要な場面でだけ使われます。
+担当は 29 体いますが、全部を使う必要はありません。リーダーは仕事に合わせて選ぶので、最初は次の 4 役が動けば十分です。ほかの担当は、必要な場面でだけ使われます。
 
 | 役 | 担当 | 使う CLI |
 |---|---|---|
 | リーダー | `claude_opus_lead` | Claude Code |
-| 実装 | `codex_sol_coder` | Codex |
-| レビュー | `claude_sonnet_reviewer` | Claude Code |
+| 実装 | `codex_terra_coder` | Codex |
+| レビュー | `codex_sol_reviewer` | Codex |
 | 調査 | `agy_flash_researcher`（agy がなければ `codex_luna_researcher`） | agy / Codex |
 
 ## 安全のための設定
@@ -166,7 +166,7 @@ cao-models replace --local gpt-6.1-sol 新しい名前
 
 | パス | 内容 |
 |---|---|
-| `agents/team/` | チームのプロファイル（リーダー 3 体＋担当 24 体） |
+| `agents/team/` | チームのプロファイル（リーダー 3 体＋担当 26 体） |
 | `agents/{claude,codex,agy}/` | 役割を決めない汎用プロファイル |
 | `skills/` | 共有スキル（ponytail：最小の変更で解くための指針） |
 | `bin/cao-dev` | プロジェクトごとのセッション起動コマンド |
