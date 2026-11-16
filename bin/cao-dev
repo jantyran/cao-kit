@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# cao-dev: ~/mypark/<project> で Claude(リーダー) + Codex(実装) + agy(調査・文章) の CAO セッションを起動
-#   cao-dev                           ~/mypark/<project> 内なら、そのプロジェクトで起動
+# cao-dev: <プロジェクト置き場>/<project> で Claude(リーダー) + Codex(実装) + agy(調査・文章) の CAO セッションを起動
+#   cao-dev                           プロジェクト置き場（CAO_DEV_ROOT、既定 ~/mypark）の中なら、そのプロジェクトで起動
 #   cao-dev <project>                 対話モード（tmux / herdr にアタッチ）
 #   cao-dev <project> "<依頼内容>"     ヘッドレスで依頼を投げて非同期実行
 #   cao-dev --lead agy_opus_lead [project]   リーダーを予備に差し替えて起動
 #   cao-dev -l | --list               プロジェクト一覧
 set -euo pipefail
-MYPARK="${MYPARK_DIR:-$HOME/mypark}"
+MYPARK="${CAO_DEV_ROOT:-${MYPARK_DIR:-$HOME/mypark}}"  # MYPARK_DIR は旧名
 PROFILE="${CAO_DEV_LEAD:-claude_opus_lead}"
 
 usage() { sed -n '2,7p' "$0" | sed 's/^# \{0,1\}//'; }
@@ -16,7 +16,7 @@ if [[ "${1:-}" == "--lead" ]]; then
   PROFILE="$2"; shift 2
 fi
 
-# 引数なしで ~/mypark/<project> 配下にいれば、そのプロジェクトを使う
+# 引数なしでプロジェクト置き場の配下にいれば、そのプロジェクトを使う
 if [[ $# -eq 0 ]]; then
   case "$PWD/" in
     "$MYPARK"/*/*) set -- "$(echo "${PWD#$MYPARK/}" | cut -d/ -f1)" ;;
@@ -65,7 +65,9 @@ attach_or_switch() {
 }
 
 suffix=""; [[ "$PROFILE" != "claude_opus_lead" ]] && suffix="-${PROFILE%%_*}"
-name="mypark-$(echo "$proj" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9\n-' '-')$suffix"
+# セッション名は「置き場のフォルダ名-プロジェクト名」（例: cao-mypark-myapp）
+slug() { echo "$1" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9\n-' '-'; }
+name="$(slug "$(basename "$MYPARK")")-$(slug "$proj")$suffix"
 if cao session list 2>/dev/null | grep -q "cao-$name\b"; then
   echo "既存セッション cao-$name があります。" >&2
   if [[ $# -gt 0 ]]; then exec cao session send "cao-$name" "$*" --async; fi

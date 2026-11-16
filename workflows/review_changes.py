@@ -2,7 +2,7 @@
 
 どちらのステップも読み取り専用で、ファイルを書き換えない（だから recovery="idempotent" が正直な宣言）。
 実行例:
-  cao workflow run review_changes --input project=$HOME/mypark/TADOL --run-id rc-tadol-1
+  cao workflow run review_changes --input project=$HOME/mypark/myapp --run-id rc-myapp-1
 """
 from cao_workflow import emit_output, get_inputs, step
 

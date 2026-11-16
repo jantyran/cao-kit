@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# 定期実行の事前チェック: ~/mypark 配下で未コミットの変更があるリポジトリを JSON で返す。
+# 定期実行の事前チェック: プロジェクト置き場（CAO_DEV_ROOT、既定 ~/mypark）配下で未コミットの変更があるリポジトリを JSON で返す。
 # 該当なしなら execute=false でエージェントを起動しない（料金ゼロ）。
 set -euo pipefail
-root="${MYPARK_DIR:-$HOME/mypark}"
+root="${CAO_DEV_ROOT:-${MYPARK_DIR:-$HOME/mypark}}"
 list=""
 for d in "$root"/*/; do
   [[ -d "$d/.git" ]] || continue

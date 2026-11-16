@@ -84,4 +84,4 @@ if [[ ! -e /etc/apparmor.d/bwrap ]]; then
   echo 'sudo apparmor_parser -r /etc/apparmor.d/bwrap'
 fi
 echo 'セッション終了後、必要に応じて実行: systemctl --user restart cao-server.service'
-echo 'node が systemd の PATH にない場合は README の手順を実施してください。'
+echo 'node が systemd の PATH にない場合は docs/setup.md の手順を実施してください。'
