@@ -44,8 +44,16 @@ if [[ -d "$dir/.git" ]] && ! grep -qx '.cao/' "$dir/.git/info/exclude" 2>/dev/nu
   echo '.cao/' >> "$dir/.git/info/exclude"
 fi
 
-curl -sf http://localhost:9889/health >/dev/null || {
-  echo "cao-server が起動していません。別ターミナルで 'cao-server' を起動してください。" >&2; exit 1; }
+# cao-server が止まっていれば systemd で起動して、最大 15 秒待つ
+if ! curl -sf http://localhost:9889/health >/dev/null; then
+  echo "cao-server を起動します…" >&2
+  systemctl --user start cao-server.service 2>/dev/null || true
+  for _ in $(seq 15); do curl -sf http://localhost:9889/health >/dev/null && break; sleep 1; done
+  curl -sf http://localhost:9889/health >/dev/null || {
+    echo "cao-server が起動できません。journalctl --user -u cao-server -n 30 で原因を確認してください。" >&2; exit 1; }
+fi
+# 前回うまく動いたときから CLI が更新されていれば知らせる（止めはしない）
+command -v cao-doctor >/dev/null && { cao-doctor --brief >&2 || true; }
 
 # 端末バックエンド（cao config set terminal.backend tmux|herdr）
 BACKEND="$(cao config get terminal.backend 2>/dev/null | tr -d '"')"

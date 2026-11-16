@@ -53,7 +53,7 @@ json_array() {
 }
 for dir in team claude codex agy; do link "$repo/agents/$dir" "$CAO_HOME_DIR/agents/$dir"; done
 for skill in ponytail ponytail-audit ponytail-review; do link "$repo/skills/$skill" "$CAO_HOME_DIR/skills/$skill"; done
-link "$repo/bin/cao-dev" "$HOME/.local/bin/cao-dev"
+for cmd in cao-dev cao-doctor cao-models cao-trace; do link "$repo/bin/$cmd" "$HOME/.local/bin/$cmd"; done
 link "$repo/codex/cao.config.toml" "$HOME/.codex/cao.config.toml"
 link "$repo/codex/cao-ro.config.toml" "$HOME/.codex/cao-ro.config.toml"
 run cao config set agents.extra_dirs "$(json_array "$CAO_HOME_DIR/agents/claude" "$CAO_HOME_DIR/agents/codex" "$CAO_HOME_DIR/agents/agy" "$CAO_HOME_DIR/agents/team")"

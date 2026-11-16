@@ -1,0 +1,66 @@
+#!/usr/bin/env python3
+"""cao-models: プロファイルのモデル名を一覧・一括置き換えする。
+
+  cao-models                   モデルごとに、使っているプロファイルを表示
+  cao-models replace OLD NEW   model: が OLD のプロファイルをすべて NEW に書き換える
+
+対象は cao-kit の agents/ 配下。書き換えるのは先頭の設定部分（frontmatter）の model: 行だけ。
+"""
+import re, sys
+from pathlib import Path
+
+agents = Path(__file__).resolve().parent.parent / "agents"
+MODEL = re.compile(r'^model:\s*(["\']?)(.*?)\1\s*$')
+
+
+def frontmatter_lines(text):
+    """frontmatter の (行番号, 行) を返す。"""
+    lines = text.split("\n")
+    if not lines or lines[0] != "---":
+        return lines, []
+    end = next((i for i in range(1, len(lines)) if lines[i] == "---"), 0)
+    return lines, list(range(1, end))
+
+
+def scan():
+    for f in sorted(agents.glob("*/*.md")):
+        text = f.read_text()
+        lines, idx = frontmatter_lines(text)
+        provider = next((l.split(":", 1)[1].strip() for l in (lines[i] for i in idx) if l.startswith("provider:")), "?")
+        for i in idx:
+            m = MODEL.match(lines[i])
+            if m:
+                yield f, lines, i, m, provider
+
+
+def show():
+    table = {}
+    for f, _, _, m, provider in scan():
+        table.setdefault((provider, m.group(2)), []).append(f.stem)
+    for (provider, model), names in sorted(table.items()):
+        print(f"{provider:<16} {model:<32} {len(names):>2}  {', '.join(names)}")
+
+
+def replace(old, new):
+    changed = {}
+    for f, lines, i, m, _ in scan():
+        if m.group(2) == old:
+            lines[i] = f"model: {m.group(1)}{new}{m.group(1)}"
+            changed[f] = lines
+    for f, lines in changed.items():
+        f.write_text("\n".join(lines))
+        print(f"更新: {f.relative_to(agents.parent)}")
+    if not changed:
+        sys.exit(f"model: {old} のプロファイルはありません（cao-models で一覧を確認）")
+    print(f"{len(changed)} ファイルを更新しました。動いているセッションは起動し直すと反映されます。")
+
+
+if __name__ == "__main__":
+    args = sys.argv[1:]
+    if not args:
+        show()
+    elif args[0] == "replace" and len(args) == 3:
+        replace(args[1], args[2])
+    else:
+        print(__doc__.strip())
+        sys.exit(0 if args[:1] in (["-h"], ["--help"]) else 1)

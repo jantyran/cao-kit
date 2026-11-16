@@ -1,0 +1,117 @@
+#!/usr/bin/env python3
+"""cao-trace: 誰が誰に頼み、何を返したかを、終了した画面も含めて表示する。
+
+  cao-trace                    セッション一覧（記録が残っているもの）
+  cao-trace <session|project>  そのセッションの担当者を、依頼した順・依頼元ごとに表示
+  cao-trace <terminal_id>      その担当者の画面の記録を表示
+
+CAO が残す $CAO_HOME_DIR/logs/terminal/*.snapshot.json と画面の記録、
+DB の handoff 結果を読むだけで、何も書き換えない。
+"""
+import json, os, sqlite3, sys, time
+from pathlib import Path
+
+# shortcut: CAO 内部のログ配置と DB 列名（2.5.4 で確認）に依存する, CAO が履歴取得の公式コマンドを出したらそちらに替える
+home = Path(os.environ.get("CAO_HOME_DIR", Path.home() / ".aws/cli-agent-orchestrator"))
+logs = home / "logs/terminal"
+
+
+def snapshots():
+    out = []
+    for f in logs.glob("*.snapshot.json"):
+        try:
+            s = json.loads(f.read_text())
+        except (OSError, ValueError):
+            continue
+        s["mtime"] = f.stat().st_mtime
+        out.append(s)
+    return sorted(out, key=lambda s: s["mtime"])
+
+
+def handoff_results():
+    db = home / "db/cli-agent-orchestrator.db"
+    try:
+        con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+        # assign の担当は send_message で報告するので、その最後のメッセージも結果として使う
+        out = {t: ("報告", msg) for t, msg in con.execute(
+            "select sender_id, message from inbox where sender_id != 'ui' order by id")}
+        rows = con.execute("select terminal_id, state, last_message from handoff_results")
+        out.update({t: (st, msg) for t, st, msg in rows if t})
+        return out
+    except sqlite3.Error:
+        return {}
+
+
+def when(t):
+    return time.strftime("%m-%d %H:%M", time.localtime(t))
+
+
+def first_line(text, width=70):
+    for line in (text or "").splitlines():
+        if line.strip():
+            line = line.strip()
+            return line if len(line) <= width else line[: width - 1] + "…"
+    return ""
+
+
+def list_sessions(snaps):
+    sessions = {}
+    for s in snaps:
+        sessions.setdefault(s.get("session_name", "?"), []).append(s)
+    print(f"{'最終更新':<12} {'担当数':>4}  セッション")
+    for name, ss in sorted(sessions.items(), key=lambda kv: kv[1][-1]["mtime"]):
+        print(f"{when(ss[-1]['mtime']):<12} {len(ss):>4}  {name}")
+
+
+def show_session(snaps, ss):
+    results = handoff_results()
+    ids = {s["terminal_id"] for s in ss}
+    children = {}
+    for s in ss:
+        parent = s.get("caller_id") if s.get("caller_id") in ids else None
+        children.setdefault(parent, []).append(s)
+
+    def walk(parent, depth):
+        for s in children.get(parent, []):
+            state, msg = results.get(s["terminal_id"], ("", ""))
+            mark = {"completed": "完了", "error": "失敗"}.get(state, state)
+            print(f"{when(s['mtime'])}  {'  ' * depth}{s['terminal_id']}  {s.get('agent_profile', '?')}"
+                  + (f"  [{mark}] {first_line(msg)}" if state else ""))
+            walk(s["terminal_id"], depth + 1)
+
+    print("最終更新     担当（字下げ = 依頼された側）  [結果]")
+    walk(None, 0)
+    print("\n画面の記録: cao-trace <terminal_id>")
+
+
+def show_terminal(tid):
+    for ext in ("log", "scrollback"):
+        f = logs / f"{tid}.{ext}"
+        if f.exists():
+            sys.stdout.write(f.read_text(errors="replace"))
+            return
+    sys.exit(f"{tid} の画面の記録がありません")
+
+
+def main(argv):
+    if argv[:1] in (["-h"], ["--help"]):
+        print(__doc__.strip())
+        return
+    snaps = snapshots()
+    if not argv:
+        list_sessions(snaps)
+        return
+    key = argv[0]
+    if any(s["terminal_id"] == key for s in snaps):
+        show_terminal(key)
+        return
+    # セッション名そのもの、cao- を省いた名前、末尾のプロジェクト名のどれでも探す
+    names = {s.get("session_name", "") for s in snaps}
+    hits = sorted(n for n in names if n in (key, f"cao-{key}") or n.endswith(f"-{key}"))
+    if len(hits) != 1:
+        sys.exit(f"セッションが見つかりません: {key}" if not hits else "候補が複数あります: " + ", ".join(hits))
+    show_session(snaps, [s for s in snaps if s.get("session_name") == hits[0]])
+
+
+if __name__ == "__main__":
+    main(sys.argv[1:])

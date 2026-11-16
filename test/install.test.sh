@@ -32,7 +32,7 @@ check test -f "$CAO_HOME_DIR/agents/team/keep"
 run
 for dir in team claude codex agy; do check test "$(readlink "$CAO_HOME_DIR/agents/$dir")" = "$repo/agents/$dir"; done
 for skill in ponytail ponytail-audit ponytail-review; do check test "$(readlink "$CAO_HOME_DIR/skills/$skill")" = "$repo/skills/$skill"; done
-check test "$(readlink "$HOME/.local/bin/cao-dev")" = "$repo/bin/cao-dev"
+for cmd in cao-dev cao-doctor cao-models cao-trace; do check test "$(readlink "$HOME/.local/bin/$cmd")" = "$repo/bin/$cmd"; done
 check test "$(readlink "$HOME/.codex/cao.config.toml")" = "$repo/codex/cao.config.toml"
 check test "$(readlink "$HOME/.codex/cao-ro.config.toml")" = "$repo/codex/cao-ro.config.toml"
 check test -f "$HOME/.codex/cao-ro.config.toml"

@@ -12,7 +12,7 @@ README の「はじめかた」で足りないときの詳しい説明です。
    |---|---|
    | `agents/{team,claude,codex,agy}` | `$CAO_HOME_DIR/agents/…` |
    | `skills/{ponytail,ponytail-audit,ponytail-review}` | `$CAO_HOME_DIR/skills/…` |
-   | `bin/cao-dev` | `~/.local/bin/cao-dev` |
+   | `bin/{cao-dev,cao-doctor,cao-trace,cao-models}` | `~/.local/bin/…` |
    | `codex/cao.config.toml`、`codex/cao-ro.config.toml` | `~/.codex/…` |
 
    リンク先にすでにファイルがあれば `.bak-YYYYmmddHHMMSS` に退避します（上書きしません）。リンクは絶対パスなので、リポジトリを移動したら再実行してください。

@@ -76,6 +76,19 @@ cao-dev --lead agy_opus_lead myapp        # Claude が利用上限のとき、�
 
 セッション名は `cao-<置き場のフォルダ名>-<プロジェクト名>` です。
 
+### 困ったとき・後から調べたいとき
+
+| コマンド | 用途 |
+|---|---|
+| `cao-doctor` | cao-server と各 CLI の状態を確認。前回うまく動いたときから CLI のバージョンが変わっていれば知らせる |
+| `cao-doctor --save` | 問題なく動いたときに、今のバージョンの組み合わせを記録する |
+| `cao-trace myapp` | 誰が誰に何を頼み、何を返したかを一覧表示（終了して消えた担当者も含む） |
+| `cao-trace <terminal_id>` | その担当者の画面の記録を表示 |
+| `cao-models` | どのプロファイルがどのモデルを使っているかの一覧 |
+| `cao-models replace 古い名前 新しい名前` | モデル名を全プロファイルで一括で置き換える |
+
+CAO は各 CLI の画面を読んで動いているため、CLI の更新で急に動かなくなることがあります。`cao-dev` は起動のたびに `cao-doctor --brief` を実行し、記録時からバージョンが変わった CLI があれば表示します。cao-server が止まっていれば、systemd で自動的に起動します。
+
 `cao-dev` は起動時に次のことも自動で行います。
 
 - Codex の「このフォルダを信頼しますか」で止まらないよう、`~/.codex/config.toml` にプロジェクトを trusted として追加
@@ -89,7 +102,7 @@ cao-dev --lead agy_opus_lead myapp        # Claude が利用上限のとき、�
 
 ### モデル
 
-各プロファイル（`agents/team/*.md`）の先頭にある `model:` を書き換えます。使えるモデル名は、契約しているプランと各 CLI のバージョンで変わります。
+各プロファイル（`agents/team/*.md`）の先頭にある `model:` を書き換えます。新しいモデルに一斉に切り替えるときは `cao-models replace gpt-6.1-sol 新しい名前` が便利です。使えるモデル名は、契約しているプランと各 CLI のバージョンで変わります。
 
 ```yaml
 ---
@@ -135,6 +148,7 @@ model: "gpt-6.1-sol"     # ← ここ
 | `agents/{claude,codex,agy}/` | 役割を決めない汎用プロファイル |
 | `skills/` | 共有スキル（ponytail：最小の変更で解くための指針） |
 | `bin/cao-dev` | プロジェクトごとのセッション起動コマンド |
+| `bin/cao-doctor`、`bin/cao-trace`、`bin/cao-models` | 状態確認、作業の追跡、モデル名の管理 |
 | `codex/` | Codex のサンドボックス設定（書き込み用・読み取り専用） |
 | `system/` | systemd ユニットと AppArmor 設定のテンプレート |
 | `flows/` | 定期実行のサンプル（毎週、未コミットのリポジトリを要約） |
@@ -149,7 +163,10 @@ model: "gpt-6.1-sol"     # ← ここ
 ```bash
 bash test/install.test.sh    # 一時 HOME で install.sh を検証（本物の HOME は変更しない）
 bash test/profiles.test.sh   # プロファイルの決まりと、リーダー 3 体の本文のずれを検証
+bash test/tools.test.sh      # cao-doctor / cao-trace / cao-models を一時コピーで検証
 ```
+
+CLI を更新したら、`cao-doctor` で確認し、問題なく動いたら `cao-doctor --save` で記録し直してください。
 
 ## 注意
 

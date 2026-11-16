@@ -1,0 +1,107 @@
+#!/usr/bin/env python3
+"""cao-doctor: CAO 環境が動く状態かを確認する。
+
+  cao-doctor          cao-server・各 CLI・前回うまく動いたときからのバージョン変化を表示
+  cao-doctor --save   今のバージョンを「うまく動いた組み合わせ」として記録する
+  cao-doctor --brief  問題とバージョン変化だけを表示（cao-dev が起動時に使う）
+
+CLI の更新で CAO の画面の読み取りがずれることがある。動かなくなったら、
+まず「前回から変わったもの」を見れば原因の候補が絞れる。
+"""
+import json, os, shutil, subprocess, sys, urllib.request
+from pathlib import Path
+
+home = Path(os.environ.get("CAO_HOME_DIR", Path.home() / ".aws/cli-agent-orchestrator"))
+known_file = home / "cao-kit-known-good.json"
+CLI = {"claude_code": "claude", "codex": "codex", "antigravity_cli": "agy"}
+
+
+def providers_in_use():
+    used = set()
+    for f in (home / "agents").glob("*/*.md"):
+        for line in f.read_text(errors="replace").split("\n")[1:40]:
+            if line.startswith("provider:"):
+                used.add(line.split(":", 1)[1].strip().strip("\"'"))
+                break
+    return used
+
+
+def version(cmd):
+    if not shutil.which(cmd):
+        return None
+    try:
+        out = subprocess.run([cmd, "--version"], capture_output=True, text=True, timeout=20).stdout
+    except (OSError, subprocess.TimeoutExpired):
+        return "?"
+    return (out.strip().splitlines() or ["?"])[0]
+
+
+def server_ok():
+    try:
+        url = os.environ.get("CAO_SERVER_URL", "http://localhost:9889")
+        with urllib.request.urlopen(f"{url}/health", timeout=3) as r:
+            return r.status == 200
+    except OSError:
+        return False
+
+
+def main(args):
+    if args and args[0] not in ("--save", "--brief"):
+        print(__doc__.strip())
+        return 0 if args[0] in ("-h", "--help") else 1
+    brief = args == ["--brief"]
+    problems, notes = [], []
+
+    current = {"cao": version("cao")}
+    for provider in sorted(providers_in_use()):
+        if provider in CLI:
+            current[CLI[provider]] = version(CLI[provider])
+    try:
+        backend = subprocess.run(["cao", "config", "get", "terminal.backend"], capture_output=True,
+                                 text=True, timeout=20).stdout.strip().strip('"') or "tmux"
+    except (OSError, subprocess.TimeoutExpired):
+        backend = "tmux"
+    current[backend] = version(backend) if backend == "herdr" else (
+        subprocess.run(["tmux", "-V"], capture_output=True, text=True).stdout.strip() if shutil.which("tmux") else None)
+
+    for name, v in current.items():
+        if v is None:
+            problems.append(f"{name} が見つかりません（プロファイルが使っています）")
+    if not server_ok():
+        problems.append("cao-server が応答しません: systemctl --user start cao-server.service")
+
+    if args == ["--save"]:
+        if problems:
+            print("\n".join("NG  " + p for p in problems))
+            print("問題があるので記録しませんでした。")
+            return 1
+        known_file.write_text(json.dumps(current, ensure_ascii=False, indent=1))
+        print(f"記録しました: {known_file}")
+        return 0
+
+    try:
+        known = json.loads(known_file.read_text())
+    except (OSError, ValueError):
+        known = {}
+    for name, v in current.items():
+        if known.get(name) and v and known[name] != v:
+            notes.append(f"{name} が変わりました: {known[name]} → {v}")
+
+    if not brief:
+        for name, v in current.items():
+            print(f"{'OK' if v else 'NG'}  {name:<7} {v or '-'}")
+        if not any("cao-server" in p for p in problems):
+            print("OK  cao-server")
+        if not known:
+            print("記録なし: 問題なく動いたら cao-doctor --save で今の組み合わせを記録してください")
+    for p in problems:
+        print("NG  " + p)
+    for n in notes:
+        print("注意  " + n)
+    if notes:
+        print("      動かない場合はこの更新が原因の候補です。問題なければ cao-doctor --save")
+    return 1 if problems else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
