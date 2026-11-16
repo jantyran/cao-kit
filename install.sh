@@ -51,12 +51,15 @@ json_array() {
   done
   printf ']'
 }
+# local/agents（git 管理外）は自分用の上書き置き場。同じ名前のプロファイルがあれば、こちらが優先される
+[[ -d "$repo/local/agents" ]] || run mkdir -p -- "$repo/local/agents"
 for dir in team claude codex agy; do link "$repo/agents/$dir" "$CAO_HOME_DIR/agents/$dir"; done
+link "$repo/local/agents" "$CAO_HOME_DIR/agents/local"
 for skill in ponytail ponytail-audit ponytail-review; do link "$repo/skills/$skill" "$CAO_HOME_DIR/skills/$skill"; done
 for cmd in cao-dev cao-doctor cao-models cao-trace; do link "$repo/bin/$cmd" "$HOME/.local/bin/$cmd"; done
 link "$repo/codex/cao.config.toml" "$HOME/.codex/cao.config.toml"
 link "$repo/codex/cao-ro.config.toml" "$HOME/.codex/cao-ro.config.toml"
-run cao config set agents.extra_dirs "$(json_array "$CAO_HOME_DIR/agents/claude" "$CAO_HOME_DIR/agents/codex" "$CAO_HOME_DIR/agents/agy" "$CAO_HOME_DIR/agents/team")"
+run cao config set agents.extra_dirs "$(json_array "$CAO_HOME_DIR/agents/local" "$CAO_HOME_DIR/agents/claude" "$CAO_HOME_DIR/agents/codex" "$CAO_HOME_DIR/agents/agy" "$CAO_HOME_DIR/agents/team")"
 run cao config set agents.disabled_dirs "$(json_array "$HOME/.kiro/agents" "$CAO_HOME_DIR/agent-store" "$CAO_HOME_DIR/agent-context")"
 run cao config set memory.learning_enabled true
 run cao config set terminal.spawn_mode pane

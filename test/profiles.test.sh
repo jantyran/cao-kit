@@ -150,4 +150,22 @@ else
     diff <(lead_body "$repo/agents/team/claude_opus_lead.md") <(lead_body "$f") >&2 || { fail "$f" 'lead body differs from claude_opus_lead.md'; exit 1; }
   done
   echo 'PASS: lead bodies in sync'
+  # 全員にコピーしている共通の節は、1 か所だけ違う文にならないよう一致を確かめる（空行の違いは無視）
+  section() { awk -v h="$1" '$0==h{f=1;next} f&&/^## /{exit} f&&NF' "$2"; }
+  check_same() {  # $1=見出し, 残り=対象ファイル。その節を持つファイル同士で比べる
+    local heading=$1 first='' f; shift
+    for f in "$@"; do
+      [[ -n "$(section "$heading" "$f")" ]] || continue
+      if [[ -z "$first" ]]; then first=$f; continue; fi
+      diff <(section "$heading" "$first") <(section "$heading" "$f") >&2 || { fail "$f" "「$heading」が $(basename "$first") と違う"; exit 1; }
+    done
+  }
+  team=("$repo"/agents/team/*.md)
+  check_same '## Security Constraints' "${team[@]}"
+  check_same '## CAO での受け答え' "${team[@]}"
+  check_same '## 学習（cao-learning）' "$repo"/agents/team/*_lead.md
+  check_same '## 学習（cao-learning）' $(printf '%s\n' "${team[@]}" | grep -v '_lead.md$')
+  echo 'PASS: shared sections in sync'
+  # 自分用の上書き（local/agents）も同じ決まりで確認する
+  if compgen -G "$repo/local/agents/*.md" > /dev/null; then check_profiles "$repo/local/agents"; fi
 fi

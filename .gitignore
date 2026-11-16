@@ -2,3 +2,5 @@
 .agents/
 .aws/
 .codex/
+local.env
+local/

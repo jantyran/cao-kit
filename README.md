@@ -51,8 +51,10 @@ cd cao-kit
 # 3. cao-server を起動
 systemctl --user start cao-server.service
 
-# 4. 作業したいプロジェクトで起動（既定のプロジェクト置き場は ~/projects）
-export CAO_DEV_ROOT="$HOME/code"   # 置き場を変えるなら。~/.bashrc などに書いておく
+# 4. 自分用の設定（プロジェクトの置き場など。既定は ~/projects）
+cp local.env.example local.env     # 中の CAO_DEV_ROOT="$HOME/code" などを書き換える
+
+# 5. 作業したいプロジェクトで起動
 cao-dev myapp                      # ~/code/myapp でリーダーと対話を始める
 ```
 
@@ -85,7 +87,7 @@ cao-dev --lead agy_opus_lead myapp        # Claude が利用上限のとき、�
 | `cao-trace myapp` | 誰が誰に何を頼み、何を返したかを一覧表示（終了して消えた担当者も含む） |
 | `cao-trace <terminal_id>` | その担当者の画面の記録を表示 |
 | `cao-models` | どのプロファイルがどのモデルを使っているかの一覧 |
-| `cao-models replace 古い名前 新しい名前` | モデル名を全プロファイルで一括で置き換える |
+| `cao-models replace --local 古い名前 新しい名前` | モデル名を一括で置き換える（`local/agents` に書くので git pull で衝突しない） |
 
 CAO は各 CLI の画面を読んで動いているため、CLI の更新で急に動かなくなることがあります。`cao-dev` は起動のたびに `cao-doctor --brief` を実行し、記録時からバージョンが変わった CLI があれば表示します。cao-server が止まっていれば、systemd で自動的に起動します。
 
@@ -96,38 +98,58 @@ CAO は各 CLI の画面を読んで動いているため、CLI の更新で急�
 
 ## 自分用に変える
 
-### プロジェクトの置き場
+自分用の変更は、git 管理外の 2 か所だけに書きます。cao-kit のファイルには触らないので、`git pull` で更新しても衝突しません。
 
-環境変数 `CAO_DEV_ROOT` で変えます（既定 `~/projects`）。定期実行（`flows/`）は cao-server から動くので、cao-server にも同じ値を渡してください（[docs/setup.md](docs/setup.md#プロジェクトの置き場)）。
+| 置き場 | 書くもの |
+|---|---|
+| `local.env` | プロジェクトの置き場（`CAO_DEV_ROOT`）、既定のリーダー（`CAO_DEV_LEAD`） |
+| `local/agents/` | 変えたいプロファイルのコピー。同じ名前なら、こちらが優先して使われる |
 
-### モデル
+### 設定（local.env）
 
-各プロファイル（`agents/team/*.md`）の先頭にある `model:` を書き換えます。新しいモデルに一斉に切り替えるときは `cao-models replace gpt-6.1-sol 新しい名前` が便利です。使えるモデル名は、契約しているプランと各 CLI のバージョンで変わります。
-
-```yaml
----
-name: codex_sol_coder
-provider: codex
-model: "gpt-6.1-sol"     # ← ここ
----
+```bash
+cp local.env.example local.env
 ```
 
-### 使わない AI がある
+`cao-dev` と定期実行（`flows/`）の両方がこのファイルを読みます。環境変数で指定した値はこちらより優先され、1 回だけリーダーを変えるなら `--lead` を使います。
 
-リーダーは、プロファイル本文の「チームと使い分け」の表を見て仕事を振ります。たとえば agy を使わないなら、`agents/team/claude_opus_lead.md` の表で agy の担当を予備の担当（`codex_luna_researcher`、`claude_sonnet_writer` など）に置き換えてください。予備のリーダー（`agy_opus_lead.md`、`codex_sol_lead.md`）も同じ本文にしておく必要があります。ずれていると `test/profiles.test.sh` が失敗して教えてくれます。
+### プロファイルを変える（local/agents）
 
-### 既定のリーダー
+変えたいプロファイルを `local/agents/` にコピーして編集します。
 
-`CAO_DEV_LEAD=agy_opus_lead` のように環境変数で変えられます。1 回だけなら `--lead` を使います。
+```bash
+cp agents/team/codex_sol_coder.md local/agents/
+vi local/agents/codex_sol_coder.md        # モデル・指示などを自由に変える
+```
 
-### 担当を増やす
+元に戻すときは、そのファイルを消すだけです。動いているセッションには、起動し直すと反映されます。
 
-既存のプロファイルをコピーして `name:`・`description:`・本文を書き換え、リーダーの表に 1 行足します。守るべき決まりは次のとおりです（テストで確認されます）。
+**モデルを一斉に変える**ときは、次のコマンドが該当するプロファイルを `local/agents/` にコピーして書き換えます。使えるモデル名は、契約しているプランと各 CLI のバージョンで変わります。
+
+```bash
+cao-models                                         # 今のモデルの一覧（* は local の上書き）
+cao-models replace --local gpt-6.1-sol 新しい名前
+```
+
+**使わない AI がある**場合は、リーダー（`claude_opus_lead.md`）を `local/agents/` にコピーし、本文の「チームと使い分け」の表で、その AI の担当を別の担当に置き換えます。たとえば agy を使わないなら、調査は `codex_luna_researcher`、文章は `claude_sonnet_writer` にします。
+
+**担当を増やす**ときは、既存のプロファイルを `local/agents/` にコピーして `name:`・`description:`・本文を書き換え、リーダーの表に 1 行足します。守るべき決まりは次のとおりです。`bash test/profiles.test.sh` は `local/agents/` も確認します。
 
 - `provider` は `claude_code` / `codex` / `antigravity_cli` のどれか
 - Claude Code は `permissionMode: auto`
 - Codex は `codexProfile: cao`（読み取り専用の役なら `cao-ro`）
 - `allowedTools` に `"*"` を入れない
+
+### まずは少ない担当で始める
+
+担当は 27 体いますが、全部を使う必要はありません。リーダーは仕事に合わせて選ぶので、最初は次の 4 役が動けば十分です。ほかの担当は、必要な場面でだけ使われます。
+
+| 役 | 担当 | 使う CLI |
+|---|---|---|
+| リーダー | `claude_opus_lead` | Claude Code |
+| 実装 | `codex_sol_coder` | Codex |
+| レビュー | `claude_sonnet_reviewer` | Claude Code |
+| 調査 | `agy_flash_researcher`（agy がなければ `codex_luna_researcher`） | agy / Codex |
 
 ## 安全のための設定
 
@@ -154,6 +176,7 @@ model: "gpt-6.1-sol"     # ← ここ
 | `flows/` | 定期実行のサンプル（毎週、未コミットのリポジトリを要約） |
 | `workflows/` | ワークフローのサンプル（差分の要約 → レビュー） |
 | `docs/` | [ロール設計](docs/roles.md)、[セットアップ詳細](docs/setup.md) |
+| `local.env.example` | 自分用の設定のひな形（コピーした `local.env` と `local/` は git 管理外） |
 | `test/` | インストーラーとプロファイルの検証 |
 
 ## 更新とテスト

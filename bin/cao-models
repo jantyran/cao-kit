@@ -1,66 +1,82 @@
 #!/usr/bin/env python3
 """cao-models: プロファイルのモデル名を一覧・一括置き換えする。
 
-  cao-models                   モデルごとに、使っているプロファイルを表示
-  cao-models replace OLD NEW   model: が OLD のプロファイルをすべて NEW に書き換える
+  cao-models                           モデルごとに、使っているプロファイルを表示（* は local/agents の上書き）
+  cao-models replace OLD NEW           model: が OLD のプロファイルを NEW に書き換える（cao-kit のファイルを直接）
+  cao-models replace --local OLD NEW   元のファイルは変えず、local/agents にコピーしてから書き換える
 
-対象は cao-kit の agents/ 配下。書き換えるのは先頭の設定部分（frontmatter）の model: 行だけ。
+local/agents（git 管理外）に同じ名前のプロファイルがあれば、そちらが使われる。
+--local を使えば git pull で衝突しない。書き換えるのは先頭の設定部分（frontmatter）の model: 行だけ。
 """
-import re, sys
+import re, shutil, sys
 from pathlib import Path
 
-agents = Path(__file__).resolve().parent.parent / "agents"
+kit = Path(__file__).resolve().parent.parent
+agents, local = kit / "agents", kit / "local" / "agents"
 MODEL = re.compile(r'^model:\s*(["\']?)(.*?)\1\s*$')
 
 
-def frontmatter_lines(text):
-    """frontmatter の (行番号, 行) を返す。"""
-    lines = text.split("\n")
-    if not lines or lines[0] != "---":
-        return lines, []
+def profiles():
+    """実際に使われるプロファイル {名前: パス}。local/agents が優先。"""
+    found = {f.stem: f for f in sorted(agents.glob("*/*.md"))}
+    found.update({f.stem: f for f in sorted(local.glob("*.md"))})
+    return found
+
+
+def model_line(f):
+    """frontmatter の (行のリスト, model 行の番号, マッチ, provider) を返す。"""
+    lines = f.read_text().split("\n")
+    if lines[:1] != ["---"]:
+        return lines, None, None, "?"
     end = next((i for i in range(1, len(lines)) if lines[i] == "---"), 0)
-    return lines, list(range(1, end))
-
-
-def scan():
-    for f in sorted(agents.glob("*/*.md")):
-        text = f.read_text()
-        lines, idx = frontmatter_lines(text)
-        provider = next((l.split(":", 1)[1].strip() for l in (lines[i] for i in idx) if l.startswith("provider:")), "?")
-        for i in idx:
-            m = MODEL.match(lines[i])
-            if m:
-                yield f, lines, i, m, provider
+    provider = next((l.split(":", 1)[1].strip() for l in lines[1:end] if l.startswith("provider:")), "?")
+    for i in range(1, end):
+        m = MODEL.match(lines[i])
+        if m:
+            return lines, i, m, provider
+    return lines, None, None, provider
 
 
 def show():
     table = {}
-    for f, _, _, m, provider in scan():
-        table.setdefault((provider, m.group(2)), []).append(f.stem)
+    for name, f in profiles().items():
+        _, i, m, provider = model_line(f)
+        if m:
+            mark = "*" if f.parent == local else ""
+            table.setdefault((provider, m.group(2)), []).append(name + mark)
     for (provider, model), names in sorted(table.items()):
         print(f"{provider:<16} {model:<32} {len(names):>2}  {', '.join(names)}")
 
 
-def replace(old, new):
-    changed = {}
-    for f, lines, i, m, _ in scan():
-        if m.group(2) == old:
-            lines[i] = f"model: {m.group(1)}{new}{m.group(1)}"
-            changed[f] = lines
-    for f, lines in changed.items():
+def replace(old, new, to_local):
+    targets = profiles() if to_local else {f"{f.parent.name}/{f.stem}": f
+                                           for f in [*agents.glob("*/*.md"), *local.glob("*.md")]}
+    count = 0
+    for f in targets.values():
+        lines, i, m, _ = model_line(f)
+        if not m or m.group(2) != old:
+            continue
+        if to_local and f.parent != local:
+            local.mkdir(parents=True, exist_ok=True)
+            f = Path(shutil.copy(f, local / f.name))
+            lines, i, m, _ = model_line(f)
+        lines[i] = f"model: {m.group(1)}{new}{m.group(1)}"
         f.write_text("\n".join(lines))
-        print(f"更新: {f.relative_to(agents.parent)}")
-    if not changed:
+        print(f"更新: {f.relative_to(kit)}")
+        count += 1
+    if not count:
         sys.exit(f"model: {old} のプロファイルはありません（cao-models で一覧を確認）")
-    print(f"{len(changed)} ファイルを更新しました。動いているセッションは起動し直すと反映されます。")
+    print(f"{count} ファイルを更新しました。動いているセッションは起動し直すと反映されます。")
 
 
 if __name__ == "__main__":
     args = sys.argv[1:]
+    to_local = "--local" in args
+    args = [a for a in args if a != "--local"]
     if not args:
         show()
     elif args[0] == "replace" and len(args) == 3:
-        replace(args[1], args[2])
+        replace(args[1], args[2], to_local)
     else:
         print(__doc__.strip())
         sys.exit(0 if args[:1] in (["-h"], ["--help"]) else 1)

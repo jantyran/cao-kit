@@ -20,6 +20,11 @@ check grep -qx 'model: old-1 は本文なので変えない' "$tmp/kit/agents/te
 check grep -qx 'model: new-2' "$tmp/kit/agents/team/b.md"
 check grep -qx 'model: other' "$tmp/kit/agents/team/c.md"
 if "$tmp/kit/bin/cao-models" replace missing x > /dev/null 2>&1; then echo 'FAIL: unknown model accepted' >&2; exit 1; fi
+# --local: 元のファイルは変えず、local/agents のコピーを書き換え、一覧では * で示す
+"$tmp/kit/bin/cao-models" replace --local other local-3 > /dev/null
+check grep -qx 'model: other' "$tmp/kit/agents/team/c.md"
+check grep -qx 'model: local-3' "$tmp/kit/local/agents/c.md"
+check grep -q 'local-3 .* 1  c\*' <("$tmp/kit/bin/cao-models")
 
 # --- cao-trace: 依頼元ごとの字下げ、handoff 結果、画面の記録
 export CAO_HOME_DIR="$tmp/state" CAO_SERVER_URL=http://127.0.0.1:9  # 閉じたポート = サーバー停止

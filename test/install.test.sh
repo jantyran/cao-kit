@@ -31,6 +31,7 @@ check test ! -d "$HOME/.config"
 check test -f "$CAO_HOME_DIR/agents/team/keep"
 run
 for dir in team claude codex agy; do check test "$(readlink "$CAO_HOME_DIR/agents/$dir")" = "$repo/agents/$dir"; done
+check test "$(readlink "$CAO_HOME_DIR/agents/local")" = "$repo/local/agents"
 for skill in ponytail ponytail-audit ponytail-review; do check test "$(readlink "$CAO_HOME_DIR/skills/$skill")" = "$repo/skills/$skill"; done
 for cmd in cao-dev cao-doctor cao-models cao-trace; do check test "$(readlink "$HOME/.local/bin/$cmd")" = "$repo/bin/$cmd"; done
 check test "$(readlink "$HOME/.codex/cao.config.toml")" = "$repo/codex/cao.config.toml"
@@ -46,7 +47,7 @@ check test "$(cat "${backups[0]}")" = 'old launcher'
 backups=("$HOME/.codex/"cao.config.toml.bak-*)
 check test -L "${backups[0]}"
 check test "$(grep -c $'^config\tset\t' "$CALLS")" -eq 4
-check grep -Fq "[\"$CAO_HOME_DIR/agents/claude\",\"$CAO_HOME_DIR/agents/codex\",\"$CAO_HOME_DIR/agents/agy\",\"$CAO_HOME_DIR/agents/team\"]" "$CALLS"
+check grep -Fq "[\"$CAO_HOME_DIR/agents/local\",\"$CAO_HOME_DIR/agents/claude\",\"$CAO_HOME_DIR/agents/codex\",\"$CAO_HOME_DIR/agents/agy\",\"$CAO_HOME_DIR/agents/team\"]" "$CALLS"
 check grep -Fq "[\"$HOME/.kiro/agents\",\"$CAO_HOME_DIR/agent-store\",\"$CAO_HOME_DIR/agent-context\"]" "$CALLS"
 check grep -Fq $'memory.learning_enabled\ttrue' "$CALLS"
 check grep -Fq $'terminal.spawn_mode\tpane' "$CALLS"

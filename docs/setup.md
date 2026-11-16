@@ -11,6 +11,7 @@ README の「はじめかた」で足りないときの詳しい説明です。
    | リポジトリ | リンク先 |
    |---|---|
    | `agents/{team,claude,codex,agy}` | `$CAO_HOME_DIR/agents/…` |
+   | `local/agents`（git 管理外、なければ作成） | `$CAO_HOME_DIR/agents/local`（最優先で探される） |
    | `skills/{ponytail,ponytail-audit,ponytail-review}` | `$CAO_HOME_DIR/skills/…` |
    | `bin/{cao-dev,cao-doctor,cao-trace,cao-models}` | `~/.local/bin/…` |
    | `codex/cao.config.toml`、`codex/cao-ro.config.toml` | `~/.codex/…` |
@@ -21,7 +22,7 @@ README の「はじめかた」で足りないときの詳しい説明です。
 
    | 項目 | 値 |
    |---|---|
-   | `agents.extra_dirs` | 上でリンクした 4 つの agents フォルダ |
+   | `agents.extra_dirs` | 上でリンクした agents フォルダ（`local` が先頭） |
    | `agents.disabled_dirs` | `~/.kiro/agents`、`$CAO_HOME_DIR/agent-store`、`$CAO_HOME_DIR/agent-context` |
    | `memory.learning_enabled` | `true` |
    | `terminal.spawn_mode` | `pane` |
@@ -46,13 +47,10 @@ export CAO_HOME_DIR="$HOME/.cao"
 
 ## プロジェクトの置き場
 
-`cao-dev` と定期実行のサンプル（`flows/`）は、`CAO_DEV_ROOT`（既定 `~/projects`）の下をプロジェクト置き場として扱います。`cao-dev` はあなたのシェルから、定期実行は cao-server から動くので、両方に設定します。
+cao-kit 直下の `local.env`（git 管理外）に書きます。`cao-dev` も、cao-server から動く定期実行（`flows/`）もこのファイルを読むので、シェルや systemd に設定する必要はありません。
 
 ```bash
-echo 'export CAO_DEV_ROOT="$HOME/code"' >> ~/.bashrc
-mkdir -p ~/.config/systemd/user/cao-server.service.d
-printf '[Service]\nEnvironment="CAO_DEV_ROOT=%%h/code"\n' > ~/.config/systemd/user/cao-server.service.d/cao-dev-root.conf
-systemctl --user daemon-reload   # 反映は cao-server の次回再起動から
+cp local.env.example local.env   # CAO_DEV_ROOT="$HOME/code" などを書く
 ```
 
 ## systemd と Node.js
