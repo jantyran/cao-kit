@@ -47,7 +47,7 @@ export CAO_HOME_DIR="$HOME/.cao"
 
 ## プロジェクトの置き場
 
-cao-kit 直下の `local.env`（git 管理外）に書きます。`cao-dev` も、cao-server から動く定期実行（`flows/`）もこのファイルを読むので、シェルや systemd に設定する必要はありません。
+cao-trio 直下の `local.env`（git 管理外）に書きます。`cao-dev` も、cao-server から動く定期実行（`flows/`）もこのファイルを読むので、シェルや systemd に設定する必要はありません。
 
 ```bash
 cp local.env.example local.env   # CAO_DEV_ROOT="$HOME/code" などを書く

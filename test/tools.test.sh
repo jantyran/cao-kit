@@ -56,8 +56,8 @@ export PATH="$tmp/bin:/usr/bin:/bin"
 # cao-server は無いので NG になり、記録されない
 if VER=1 "$repo/bin/cao-doctor" --save > "$tmp/out"; then echo 'FAIL: saved despite problems' >&2; exit 1; fi
 check grep -q 'cao-server が応答しません' "$tmp/out"
-check test ! -e "$CAO_HOME_DIR/cao-kit-known-good.json"
-printf '{"cao": "cao 1", "codex": "codex 1"}' > "$CAO_HOME_DIR/cao-kit-known-good.json"
+check test ! -e "$CAO_HOME_DIR/cao-trio-known-good.json"
+printf '{"cao": "cao 1", "codex": "codex 1"}' > "$CAO_HOME_DIR/cao-trio-known-good.json"
 VER=2 "$repo/bin/cao-doctor" --brief > "$tmp/out" || true
 check grep -q 'codex が変わりました: codex 1 → codex 2' "$tmp/out"
 rm "$tmp/bin/codex"

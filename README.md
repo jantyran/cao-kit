@@ -1,4 +1,4 @@
-# cao-kit
+# cao-trio
 
 [CLI Agent Orchestrator（CAO）](https://github.com/awslabs/cli-agent-orchestrator) で、**Claude Code・Codex・agy（Antigravity CLI）を役割分担させて開発するための設定一式**です。
 
@@ -43,8 +43,8 @@ uv tool install cli-agent-orchestrator
 export PATH="$HOME/.local/bin:$PATH"
 
 # 2. このリポジトリを取ってきて、インストール内容を確認してから実行
-git clone https://github.com/jantyran/cao-kit.git
-cd cao-kit
+git clone https://github.com/jantyran/cao-trio.git
+cd cao-trio
 ./install.sh --dry-run
 ./install.sh
 
@@ -98,7 +98,7 @@ CAO は各 CLI の画面を読んで動いているため、CLI の更新で急�
 
 ## 自分用に変える
 
-自分用の変更は、git 管理外の 2 か所だけに書きます。cao-kit のファイルには触らないので、`git pull` で更新しても衝突しません。
+自分用の変更は、git 管理外の 2 か所だけに書きます。cao-trio のファイルには触らないので、`git pull` で更新しても衝突しません。
 
 | 置き場 | 書くもの |
 |---|---|

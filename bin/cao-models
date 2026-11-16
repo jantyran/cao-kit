@@ -2,7 +2,7 @@
 """cao-models: プロファイルのモデル名を一覧・一括置き換えする。
 
   cao-models                           モデルごとに、使っているプロファイルを表示（* は local/agents の上書き）
-  cao-models replace OLD NEW           model: が OLD のプロファイルを NEW に書き換える（cao-kit のファイルを直接）
+  cao-models replace OLD NEW           model: が OLD のプロファイルを NEW に書き換える（cao-trio のファイルを直接）
   cao-models replace --local OLD NEW   元のファイルは変えず、local/agents にコピーしてから書き換える
 
 local/agents（git 管理外）に同じ名前のプロファイルがあれば、そちらが使われる。

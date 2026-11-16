@@ -6,7 +6,7 @@
 #   cao-dev --lead agy_opus_lead [project]   リーダーを予備に差し替えて起動
 #   cao-dev -l | --list               プロジェクト一覧
 set -euo pipefail
-# 個人設定は cao-kit 直下の local.env（git 管理外）。環境変数があればそちらを優先
+# 個人設定は cao-trio 直下の local.env（git 管理外）。環境変数があればそちらを優先
 env_root=${CAO_DEV_ROOT:-} env_lead=${CAO_DEV_LEAD:-}
 kit=$(cd -- "$(dirname -- "$(readlink -f -- "$0")")/.." && pwd -P)
 [[ -f "$kit/local.env" ]] && . "$kit/local.env"
