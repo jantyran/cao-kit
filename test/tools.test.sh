@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# cao-models / cao-trace / cao-doctor を一時コピーと偽の状態ディレクトリで検証（本物は変更しない）
+# cao-models / cao-trace / cao-doctor / cao-dev を一時コピーと偽の状態ディレクトリで検証（本物は変更しない）
 set -euo pipefail
 repo=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/tools-test.XXXXXX")
@@ -63,5 +63,18 @@ check grep -q 'codex が変わりました: codex 1 → codex 2' "$tmp/out"
 rm "$tmp/bin/codex"
 VER=1 "$repo/bin/cao-doctor" --brief > "$tmp/out" || true
 check grep -q 'codex が見つかりません' "$tmp/out"
+
+# --- cao-dev: 置き場の外（ホーム直下・パス指定）でも起動し、セッション名は親フォルダ名から作る
+mkdir -p "$tmp/dev/bin" "$tmp/home/projects/app" "$tmp/home/side" "$tmp/home/x/deep"
+printf '#!/bin/sh\n[ "$1" = launch ] && echo "LAUNCH $*"\nexit 0\n' > "$tmp/dev/bin/cao"
+printf '#!/bin/sh\nexit 0\n' > "$tmp/dev/bin/curl"
+chmod +x "$tmp/dev/bin/"*
+dev() { HOME="$tmp/home" CAO_DEV_ROOT="$tmp/home/projects" PATH="$tmp/dev/bin:/usr/bin:/bin" TMUX= HERDR_PANE_ID= "$repo/bin/cao-dev" "$@"; }
+check grep -q -- "--session-name projects-app --working-directory $tmp/home/projects/app " <(dev app 'do')
+check grep -q -- "--session-name home-side --working-directory $tmp/home/side " <(dev side 'do')
+check grep -q -- "--session-name x-deep --working-directory $tmp/home/x/deep " <(dev "$tmp/home/x/deep" 'do')
+check grep -q -- "--session-name x-deep " <(cd "$tmp/home/x" && dev ./deep 'do')
+if dev nothing 'do' > /dev/null 2>&1; then echo 'FAIL: unknown project accepted' >&2; exit 1; fi
+if dev "$tmp/home" 'do' > /dev/null 2>&1; then echo 'FAIL: home accepted' >&2; exit 1; fi
 
 printf 'PASS: %s checks\n' "$checks"

@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # cao-dev: <プロジェクト置き場>/<project> で Claude(リーダー) + Codex(実装) + agy(調査・文章) の CAO セッションを起動
 #   cao-dev                           プロジェクト置き場（CAO_DEV_ROOT、既定 ~/projects）の中なら、そのプロジェクトで起動
-#   cao-dev <project>                 対話モード（tmux / herdr にアタッチ）
+#   cao-dev <project>                 対話モード（置き場になければ ~/<project> も探す）
+#   cao-dev <パス>                     置き場の外でも、パス（. や ~/foo、/path/to/foo）で指定できる
 #   cao-dev <project> "<依頼内容>"     ヘッドレスで依頼を投げて非同期実行
 #   cao-dev --lead agy_opus_lead [project]   リーダーを予備に差し替えて起動
 #   cao-dev -l | --list               プロジェクト一覧
@@ -13,18 +14,18 @@ kit=$(cd -- "$(dirname -- "$(readlink -f -- "$0")")/.." && pwd -P)
 ROOT="${env_root:-${CAO_DEV_ROOT:-$HOME/projects}}"
 PROFILE="${env_lead:-${CAO_DEV_LEAD:-claude_opus_lead}}"
 
-usage() { sed -n '2,7p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,8p' "$0" | sed 's/^# \{0,1\}//'; }
 # --lead <profile> でリーダーを差し替え（利用上限時: agy_opus_lead → codex_sol_lead）
 if [[ "${1:-}" == "--lead" ]]; then
   [[ -n "${2:-}" ]] || { echo "--lead にプロファイル名を指定してください（例: agy_opus_lead）" >&2; exit 1; }
   PROFILE="$2"; shift 2
 fi
 
-# 引数なしでプロジェクト置き場の配下にいれば、そのプロジェクトを使う
+# 引数なしなら、置き場の配下はそのプロジェクト、それ以外は今いる git リポジトリ
 if [[ $# -eq 0 ]]; then
   case "$PWD/" in
     "$ROOT"/*/*) set -- "$(echo "${PWD#$ROOT/}" | cut -d/ -f1)" ;;
-    *) usage; exit 0 ;;
+    *) top=$(git rev-parse --show-toplevel 2>/dev/null) || { usage; exit 0; }; set -- "$top" ;;
   esac
 fi
 case "${1:-}" in
@@ -32,9 +33,16 @@ case "${1:-}" in
   -l|--list) ls -1d "$ROOT"/*/ | xargs -n1 basename | grep -v '^z_archived$'; exit 0 ;;
 esac
 
-proj="$1"; shift
-dir="$ROOT/$proj"
-[[ -d "$dir" ]] || { echo "プロジェクトが見つかりません: $dir" >&2; echo "候補:" >&2; ls -1d "$ROOT"/*/ | xargs -n1 basename | sed 's/^/  /' >&2; exit 1; }
+arg="$1"; shift
+# / を含むか . ならパス、それ以外は置き場 → ホーム直下の順で探す
+case "$arg" in
+  .|..|*/*) dir="$arg" ;;
+  *) dir="$ROOT/$arg"; [[ -d "$dir" ]] || [[ ! -d "$HOME/$arg" ]] || dir="$HOME/$arg" ;;
+esac
+[[ -d "$dir" ]] || { echo "プロジェクトが見つかりません: $arg" >&2; echo "候補（$ROOT）:" >&2; ls -1d "$ROOT"/*/ | xargs -n1 basename | sed 's/^/  /' >&2; exit 1; }
+dir=$(cd -- "$dir" && pwd -P)
+proj=$(basename -- "$dir")
+[[ "$dir" != "$HOME" && "$dir" != / ]] || { echo "ホームや / そのものでは起動できません。プロジェクトのフォルダを指定してください。" >&2; exit 1; }
 
 # Codex の「Trust this folder?」ダイアログでタスク配送が失敗するのを防ぐ
 CODEX_CFG="$HOME/.codex/config.toml"
@@ -77,9 +85,10 @@ attach_or_switch() {
 }
 
 suffix=""; [[ "$PROFILE" != "claude_opus_lead" ]] && suffix="-${PROFILE%%_*}"
-# セッション名は「置き場のフォルダ名-プロジェクト名」（例: cao-projects-myapp）
+# セッション名は「親フォルダ名-プロジェクト名」（例: cao-projects-myapp）。ホーム直下は home
 slug() { echo "$1" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9\n-' '-'; }
-name="$(slug "$(basename "$ROOT")")-$(slug "$proj")$suffix"
+parent=$(dirname -- "$dir"); [[ "$parent" == "$HOME" ]] && parent=home
+name="$(slug "$(basename -- "$parent")")-$(slug "$proj")$suffix"
 if cao session list 2>/dev/null | grep -q "cao-$name\b"; then
   echo "既存セッション cao-$name があります。" >&2
   if [[ $# -gt 0 ]]; then exec cao session send "cao-$name" "$*" --async; fi
@@ -89,7 +98,7 @@ fi
 if [[ $# -gt 0 ]]; then
   cao launch --agents "$PROFILE" --session-name "$name" --working-directory "$dir" \
     --headless --auto-approve --async "$*"
-  echo "状況確認: cao session status cao-$name --workers / 接続: cao-dev $proj"
+  echo "状況確認: cao session status cao-$name --workers / 接続: cao-dev $arg"
 else
   if [[ -n "${TMUX:-}${HERDR_PANE_ID:-}" ]]; then
     # tmux/herdr 内ではネスト不可のため、ヘッドレス起動してからセッションを切り替える

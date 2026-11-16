@@ -66,7 +66,8 @@ cao-dev myapp                      # ~/code/myapp でリーダーと対話を始
 cao-dev --list                            # プロジェクト一覧
 cao-dev myapp                             # 対話で始める（既存セッションがあれば接続）
 cao-dev myapp "ログイン画面のバグを直して"  # 依頼だけ投げてバックグラウンドで実行
-cao-dev                                   # プロジェクトのフォルダ内なら名前を省略できる
+cao-dev                                   # 置き場の中か git リポジトリの中なら名前を省略できる
+cao-dev ~/work/other                      # 置き場の外はパスで指定（~/other なら名前だけでも可）
 cao-dev --lead agy_opus_lead myapp        # Claude が利用上限のとき、予備のリーダーで起動
 ```
 
