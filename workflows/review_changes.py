@@ -26,8 +26,8 @@ summary = step(
 
 # 2. 要約を踏まえてレビュー（Claude Sonnet、読み取り専用ロール）
 review = step(
-    provider="claude_code",
-    agent="claude_sonnet_reviewer",
+    provider="codex",
+    agent="codex_sol_reviewer",
     prompt=(
         f"{project} の未コミット差分をレビューしてください。`git diff` を自分でも読むこと。\n"
         f"参考: 別担当の要約\n{summary.output}\n\n"
