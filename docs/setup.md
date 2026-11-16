@@ -44,6 +44,17 @@ export CAO_HOME_DIR="$HOME/.cao"
 
 新しく作る systemd ユニットにはこの値が埋め込まれます。既存のユニットを使う場合は `systemctl --user edit cao-server.service` で `Environment="CAO_HOME_DIR=…"` を足してください。
 
+## プロジェクトの置き場
+
+`cao-dev` と定期実行のサンプル（`flows/`）は、`CAO_DEV_ROOT`（既定 `~/projects`）の下をプロジェクト置き場として扱います。`cao-dev` はあなたのシェルから、定期実行は cao-server から動くので、両方に設定します。
+
+```bash
+echo 'export CAO_DEV_ROOT="$HOME/code"' >> ~/.bashrc
+mkdir -p ~/.config/systemd/user/cao-server.service.d
+printf '[Service]\nEnvironment="CAO_DEV_ROOT=%%h/code"\n' > ~/.config/systemd/user/cao-server.service.d/cao-dev-root.conf
+systemctl --user daemon-reload   # 反映は cao-server の次回再起動から
+```
+
 ## systemd と Node.js
 
 サービスの PATH は `%h/.local/bin:/usr/local/bin:/usr/bin:/bin` です。nvm などで入れた node や、各 AI の CLI がこの PATH にない場合は、場所を確認して drop-in で足します。

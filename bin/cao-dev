@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # cao-dev: <プロジェクト置き場>/<project> で Claude(リーダー) + Codex(実装) + agy(調査・文章) の CAO セッションを起動
-#   cao-dev                           プロジェクト置き場（CAO_DEV_ROOT、既定 ~/mypark）の中なら、そのプロジェクトで起動
+#   cao-dev                           プロジェクト置き場（CAO_DEV_ROOT、既定 ~/projects）の中なら、そのプロジェクトで起動
 #   cao-dev <project>                 対話モード（tmux / herdr にアタッチ）
 #   cao-dev <project> "<依頼内容>"     ヘッドレスで依頼を投げて非同期実行
 #   cao-dev --lead agy_opus_lead [project]   リーダーを予備に差し替えて起動
 #   cao-dev -l | --list               プロジェクト一覧
 set -euo pipefail
-MYPARK="${CAO_DEV_ROOT:-${MYPARK_DIR:-$HOME/mypark}}"  # MYPARK_DIR は旧名
+ROOT="${CAO_DEV_ROOT:-$HOME/projects}"
 PROFILE="${CAO_DEV_LEAD:-claude_opus_lead}"
 
 usage() { sed -n '2,7p' "$0" | sed 's/^# \{0,1\}//'; }
@@ -19,18 +19,18 @@ fi
 # 引数なしでプロジェクト置き場の配下にいれば、そのプロジェクトを使う
 if [[ $# -eq 0 ]]; then
   case "$PWD/" in
-    "$MYPARK"/*/*) set -- "$(echo "${PWD#$MYPARK/}" | cut -d/ -f1)" ;;
+    "$ROOT"/*/*) set -- "$(echo "${PWD#$ROOT/}" | cut -d/ -f1)" ;;
     *) usage; exit 0 ;;
   esac
 fi
 case "${1:-}" in
   -h|--help) usage; exit 0 ;;
-  -l|--list) ls -1d "$MYPARK"/*/ | xargs -n1 basename | grep -v '^z_archived$'; exit 0 ;;
+  -l|--list) ls -1d "$ROOT"/*/ | xargs -n1 basename | grep -v '^z_archived$'; exit 0 ;;
 esac
 
 proj="$1"; shift
-dir="$MYPARK/$proj"
-[[ -d "$dir" ]] || { echo "プロジェクトが見つかりません: $dir" >&2; echo "候補:" >&2; ls -1d "$MYPARK"/*/ | xargs -n1 basename | sed 's/^/  /' >&2; exit 1; }
+dir="$ROOT/$proj"
+[[ -d "$dir" ]] || { echo "プロジェクトが見つかりません: $dir" >&2; echo "候補:" >&2; ls -1d "$ROOT"/*/ | xargs -n1 basename | sed 's/^/  /' >&2; exit 1; }
 
 # Codex の「Trust this folder?」ダイアログでタスク配送が失敗するのを防ぐ
 CODEX_CFG="$HOME/.codex/config.toml"
@@ -73,9 +73,9 @@ attach_or_switch() {
 }
 
 suffix=""; [[ "$PROFILE" != "claude_opus_lead" ]] && suffix="-${PROFILE%%_*}"
-# セッション名は「置き場のフォルダ名-プロジェクト名」（例: cao-mypark-myapp）
+# セッション名は「置き場のフォルダ名-プロジェクト名」（例: cao-projects-myapp）
 slug() { echo "$1" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9\n-' '-'; }
-name="$(slug "$(basename "$MYPARK")")-$(slug "$proj")$suffix"
+name="$(slug "$(basename "$ROOT")")-$(slug "$proj")$suffix"
 if cao session list 2>/dev/null | grep -q "cao-$name\b"; then
   echo "既存セッション cao-$name があります。" >&2
   if [[ $# -gt 0 ]]; then exec cao session send "cao-$name" "$*" --async; fi

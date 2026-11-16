@@ -51,7 +51,7 @@ cd cao-kit
 # 3. cao-server を起動
 systemctl --user start cao-server.service
 
-# 4. 作業したいプロジェクトで起動（既定のプロジェクト置き場は ~/mypark）
+# 4. 作業したいプロジェクトで起動（既定のプロジェクト置き場は ~/projects）
 export CAO_DEV_ROOT="$HOME/code"   # 置き場を変えるなら。~/.bashrc などに書いておく
 cao-dev myapp                      # ~/code/myapp でリーダーと対話を始める
 ```
@@ -98,7 +98,7 @@ CAO は各 CLI の画面を読んで動いているため、CLI の更新で急�
 
 ### プロジェクトの置き場
 
-環境変数 `CAO_DEV_ROOT` で変えます（既定 `~/mypark`。旧名の `MYPARK_DIR` も使えます）。
+環境変数 `CAO_DEV_ROOT` で変えます（既定 `~/projects`）。定期実行（`flows/`）は cao-server から動くので、cao-server にも同じ値を渡してください（[docs/setup.md](docs/setup.md#プロジェクトの置き場)）。
 
 ### モデル
 

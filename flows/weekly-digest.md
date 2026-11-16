@@ -1,9 +1,9 @@
 ---
-name: mypark-weekly-digest
+name: weekly-digest
 schedule: "0 9 * * 1"
 agent_profile: codex_luna_researcher
 provider: codex
-script: ./mypark-dirty-repos.sh
+script: ./dirty-repos.sh
 ---
 あなたは読み取り専用の調査担当です。ファイルは変更しないでください。
 
