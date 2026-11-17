@@ -1,0 +1,243 @@
+--- a/backends/herdr_backend.py
++++ b/backends/herdr_backend.py
+@@ -15,6 +15,7 @@
+ import os
+ import re
+ import subprocess
++import threading
+ import time
+ from pathlib import Path
+ from typing import Dict, List, Optional, cast
+@@ -56,6 +57,9 @@
+ _HERDR_ALLOWED_FLAGS = frozenset(
+     {
+         "--cwd",
++        "--direction",
++        "--ratio",
++        "--no-focus",
+         "--env",
+         "--format",
+         "--label",
+@@ -143,6 +147,7 @@
+ # _resolve_workspace_id(). _resolve_pane_id_from_window() never caches pane_ids —
+ # herdr renumbers panes on deletion, so it resolves the pane fresh every call.
+ _PANE_CACHE_TTL = 5.0
++_MAX_PANES_PER_TAB = 4
+ 
+ # Staleness bound for the durable pane_id map (seconds). Herdr public pane_ids
+ # are stable except across a full server restart, so a generous TTL is a cheap
+@@ -161,18 +166,25 @@
+     - pane_id → compact ID resolved via herdr pane list before each operation
+     """
+ 
+-    def __init__(self, send_delay_ms: int = 0, herdr_session: str = "cao") -> None:
++    # ponytail: shared process lock; use per-session locks if spawn throughput matters.
++    _create_window_lock = threading.Lock()
++
++    def __init__(
++        self, send_delay_ms: int = 0, herdr_session: str = "cao", spawn_mode: str = "window"
++    ) -> None:
+         """Initialize HerdrBackend.
+ 
+         Args:
+             send_delay_ms: Milliseconds to sleep between send-text and send-keys Enter.
+                 Configurable per-provider for bracketed paste timing.
++            spawn_mode: "pane" splits the first tab up to four panes; otherwise creates tabs.
+             herdr_session: Name of the herdr session CAO operates in.
+                 Maps to ``herdr --session <name>``. Defaults to ``"cao"`` so CAO
+                 runs isolated from the user's personal herdr session.
+         """
+         self._send_delay_ms = send_delay_ms
+         self._herdr_session = herdr_session
++        self._spawn_mode = spawn_mode
+         # Resolution cache: terminal_id → (pane_id, timestamp)
+         self._pane_cache: Dict[str, tuple[str, float]] = {}
+         # Durable map: terminal_id → pane_id, rebuilt from `api snapshot`.
+@@ -391,6 +403,16 @@
+     # --- Window/tab lifecycle ---
+ 
+     def create_window(
++        self, session_name: str, window_name: str, terminal_id: str,
++        working_directory: Optional[str] = None, window_shell: Optional[str] = None,
++        extra_env: Optional[Dict[str, str]] = None,
++    ) -> str:
++        with self._create_window_lock:
++            return self._create_window_locked(
++                session_name, window_name, terminal_id, working_directory, window_shell, extra_env
++            )
++
++    def _create_window_locked(
+         self,
+         session_name: str,
+         window_name: str,
+@@ -399,7 +421,7 @@
+         window_shell: Optional[str] = None,
+         extra_env: Optional[Dict[str, str]] = None,
+     ) -> str:
+-        """Create a new tab in the workspace."""
++        """Create a tab, or fill a free quadrant of the first tab's 2x2 grid."""
+         import os
+ 
+         working_directory = working_directory or os.getcwd()
+@@ -408,6 +430,45 @@
+         workspace_id = self._resolve_workspace_id(session_name)
+ 
+         args = ["tab", "create", "--workspace", workspace_id, "--label", window_name]
++        if self._spawn_mode == "pane":
++            try:
++                tabs_data = self._parse_herdr_json(self._run_herdr(["tab", "list"]).stdout)
++                tabs = tabs_data.get("tabs", []) if isinstance(tabs_data, dict) else tabs_data
++                tabs = [tab for tab in tabs if tab.get("workspace_id") == workspace_id]
++                if tabs:
++                    pane_data = self._parse_herdr_json(self._run_herdr(["pane", "list"]).stdout)
++                    panes = pane_data.get("panes", []) if isinstance(pane_data, dict) else pane_data
++                    panes = [pane for pane in panes if pane.get("tab_id") == tabs[0]["tab_id"]]
++                    if 0 < len(panes) < _MAX_PANES_PER_TAB:
++                        direction = "right" if len(panes) == 1 else "down"
++                        target = str(panes[0]["pane_id"])
++                        if len(panes) > 1:
++                            data = self._parse_herdr_json(self._run_herdr(["api", "snapshot"]).stdout)
++                            snapshot = data.get("snapshot", data)
++                            layout = next((item for item in snapshot.get("layouts", [])
++                                           if item.get("tab_id") == tabs[0]["tab_id"]), None)
++                            if layout:
++                                live_ids = {pane["pane_id"] for pane in panes}
++                                candidates = [item for item in layout.get("panes", [])
++                                              if item.get("pane_id") in live_ids]
++                                if candidates:
++                                    # Fill an unsplit row/column, then prefer the left/top
++                                    # position, independent of one-cell rounding differences.
++                                    selected = max(candidates, key=lambda item: (
++                                        item["rect"]["width"] >= layout["area"]["width"],
++                                        item["rect"]["height"] >= layout["area"]["height"],
++                                        -item["rect"]["x"], -item["rect"]["y"],
++                                    ))
++                                    target = str(selected["pane_id"])
++                                    direction = ("right" if selected["rect"]["width"] ==
++                                                 layout["area"]["width"] else "down")
++                        args = [
++                            "pane", "split", target,
++                            "--direction", direction, "--ratio", "0.5", "--no-focus",
++                        ]
++            except (KeyError, TypeError, TerminalBackendError, json.JSONDecodeError, AttributeError):
++                logger.warning("create_window: pane layout unavailable; falling back to tab")
++                args = ["tab", "create", "--workspace", workspace_id, "--label", window_name]
+         if working_directory:
+             args.extend(["--cwd", working_directory])
+         # Inject CAO identity + operator-forwarded env natively via --env
+@@ -418,6 +479,16 @@
+ 
+         # Parse the new pane_id directly from the create response
+         new_pane_id = self._parse_new_pane_id(result.stdout)
++
++        if new_pane_id and args[:2] == ["pane", "split"]:
++            try:
++                self._run_herdr(["pane", "rename", new_pane_id, window_name])
++            except Exception:
++                try:
++                    self._run_herdr(["pane", "close", new_pane_id], check=False)
++                except Exception:
++                    logger.warning("create_window: failed to close unrenamed pane %s", new_pane_id)
++                raise
+ 
+         # Seed the pane cache so get_pane_id() keeps its fast path (formerly
+         # seeded via the send-text env path). R4 will replace this cache with a
+@@ -433,7 +504,7 @@
+             except TerminalBackendError as e:
+                 logger.warning(f"create_window: pane run failed for {new_pane_id} (non-fatal): {e}")
+ 
+-        logger.info(f"Created herdr tab in workspace {session_name}")
++        logger.info(f"Created herdr window in workspace {session_name}")
+         return window_name
+ 
+     def kill_window(self, session_name: str, window_name: str) -> bool:
+@@ -1044,14 +1115,15 @@
+         )
+ 
+     def _parse_new_pane_id(self, stdout: str) -> Optional[str]:
+-        """Extract the root pane_id from a workspace/tab create response.
++        """Extract the pane_id from a workspace/tab create or pane split response.
+ 
+         Both 'herdr workspace create' and 'herdr tab create' return a
+         result.root_pane.pane_id field with the newly created pane's ID.
+         """
+         try:
+             data = self._parse_herdr_json(stdout)
+-            return str(data["root_pane"]["pane_id"])
++            pane = data.get("root_pane", data.get("pane", {}))
++            return str(pane["pane_id"])
+         except (json.JSONDecodeError, KeyError, TypeError):
+             return None
+ 
+@@ -1140,8 +1212,10 @@
+         latency optimization; the chain is otherwise resolved live.
+ 
+         Resolution chain: workspace_id (by label) → tab_id (by label within the
+-        workspace) → the pane whose tab_id matches. There is no fallback: a tab
+-        must exist for the window and a pane must exist for the tab.
++        workspace) → a matching pane label / unique unlabeled leader. Even a
++        sole pane with another label cannot stand in for a deleted leader.
++        Without a matching tab, use a workspace-scoped pane label. Duplicate
++        pane labels are rejected rather than guessed.
+ 
+         Raises:
+             TerminalNotFoundError: If the workspace, tab, or pane cannot be
+@@ -1149,19 +1223,28 @@
+         """
+         try:
+             workspace_id = self._resolve_workspace_id(session_name)
+-            tab_id = self._resolve_tab_id(session_name, workspace_id, window_name)
+-
++            try:
++                tab_id = self._resolve_tab_id(session_name, workspace_id, window_name)
++            except TerminalBackendError:
++                tab_id = None
+             result = self._run_herdr(["pane", "list"])
+-            try:
+-                data = self._parse_herdr_json(result.stdout)
+-                panes = data.get("panes", []) if isinstance(data, dict) else data
+-            except json.JSONDecodeError as e:
+-                raise TerminalBackendError(f"Failed to parse herdr pane list: {e}") from e
+-        except TerminalBackendError as e:
++            data = self._parse_herdr_json(result.stdout)
++            panes = data.get("panes", []) if isinstance(data, dict) else data
++        except (TerminalBackendError, json.JSONDecodeError, TypeError) as e:
+             raise TerminalNotFoundError(f"{session_name}:{window_name}") from e
+ 
+-        for pane in panes:
+-            if pane.get("tab_id") == tab_id:
+-                return str(pane["pane_id"])
+-
++        scoped = [pane for pane in panes if pane.get("workspace_id") == workspace_id]
++        labeled = [pane for pane in scoped if pane.get("label") == window_name]
++        if len(labeled) > 1:
++            raise TerminalNotFoundError(f"{session_name}:{window_name}")
++        if tab_id is not None:
++            in_tab = [pane for pane in scoped if pane.get("tab_id") == tab_id]
++            matching = [pane for pane in in_tab if pane.get("label") == window_name]
++            if matching:
++                return str(matching[0]["pane_id"])
++            unlabeled = [pane for pane in in_tab if not pane.get("label")]
++            if len(unlabeled) == 1:
++                return str(unlabeled[0]["pane_id"])
++        elif labeled:
++            return str(labeled[0]["pane_id"])
+         raise TerminalNotFoundError(f"{session_name}:{window_name}")
+--- a/backends/factory.py
++++ b/backends/factory.py
+@@ -82,7 +82,14 @@
+                 "[EXPERIMENTAL] terminal_backend='herdr' is experimental. "
+                 "Report issues at https://github.com/awslabs/cli-agent-orchestrator/issues"
+             )
+-            return HerdrBackend(herdr_session=herdr_session)
++            spawn_mode = ConfigService.get("terminal.spawn_mode", default="window")
++            if spawn_mode not in ("window", "pane"):
++                logger.warning(
++                    "Unknown terminal.spawn_mode '%s'; expected pane or window. "
++                    "Falling back to 'window'.", spawn_mode
++                )
++                spawn_mode = "window"
++            return HerdrBackend(herdr_session=herdr_session, spawn_mode=spawn_mode)
+         else:
+             raise ConfigurationError(
+                 f"Unknown terminal_backend: '{backend_name}'. "

@@ -67,6 +67,15 @@ def main(args):
     for name, v in current.items():
         if v is None:
             problems.append(f"{name} が見つかりません（プロファイルが使っています）")
+    if backend == "herdr":
+        patch_command = Path(__file__).resolve().with_name("cao-patch")
+        try:
+            status = subprocess.run([str(patch_command), "--check"], capture_output=True,
+                                    text=True, timeout=30)
+            if status.returncode:
+                notes.append(f"パッチ未適用または確認不可: {patch_command} を実行してください")
+        except (OSError, subprocess.TimeoutExpired):
+            notes.append(f"パッチ確認不可: {patch_command} --check を実行してください")
     if not server_ok():
         problems.append("cao-server が応答しません: systemctl --user start cao-server.service")
 
