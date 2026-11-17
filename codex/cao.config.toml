@@ -3,3 +3,6 @@
 approvals_reviewer = "auto_review"
 approval_policy = "on-request"
 sandbox_mode = "workspace-write"
+
+[mcp_servers.cao-mcp-server]
+default_tools_approval_mode = "approve"

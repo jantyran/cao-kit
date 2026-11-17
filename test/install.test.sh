@@ -24,6 +24,23 @@ check() { if "$@"; then checks=$((checks + 1)); else printf 'FAIL: %s\n' "$*" >&
 run() { bash "$repo/install.sh" "$@" > "$tmp/output"; }
 # Missing installer must fail before any assertions can pass.
 check test -f "$repo/install.sh"
+# The Codex notice change is independently applicable and idempotent for all table layouts.
+for case_name in migrations notice existing; do
+  export HOME="$tmp/notice-$case_name"
+  mkdir -p "$HOME/.codex"
+  case "$case_name" in
+    migrations) printf '[notice.model_migrations]\nfoo = true\n' > "$HOME/.codex/config.toml" ;;
+    notice) printf '[notice]\nother = true\n\n[notice.model_migrations]\nfoo = true\n' > "$HOME/.codex/config.toml" ;;
+    existing) printf '[notice]\nhide_rate_limit_model_nudge = true\n' > "$HOME/.codex/config.toml" ;;
+  esac
+  bash "$repo/install.sh" --apply-codex-notice-only
+  cp "$HOME/.codex/config.toml" "$tmp/notice-once"
+  bash "$repo/install.sh" --apply-codex-notice-only
+  check cmp -s "$HOME/.codex/config.toml" "$tmp/notice-once"
+  check python3 -c 'import tomllib,sys; assert tomllib.load(open(sys.argv[1], "rb"))["notice"]["hide_rate_limit_model_nudge"] is True' "$HOME/.codex/config.toml"
+  check test "$(grep -c '^hide_rate_limit_model_nudge = true$' "$HOME/.codex/config.toml")" -eq 1
+done
+export HOME="$tmp/home with spaces"
 run --dry-run
 check test ! -e "$CALLS"
 check test ! -L "$CAO_HOME_DIR/agents/team"
