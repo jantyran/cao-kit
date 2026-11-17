@@ -7,7 +7,7 @@
 | # | 原則 | 根拠 |
 |---|---|---|
 | P1 | **書く役と確かめる役を分け、確かめる役は本当に書けないようにする** | 自己レビューは生成時の正当化を引きずる。読み取り専用のレビュー担当が一般的（Anthropic: Building effective agents、Claude Code subagents） |
-| P2 | **レビューは実装より上の格で、独立して** | 同系モデル同士は上流の誤りを追認しやすい（同調バイアス）。2026-11-16 からは Claude のトークン節約のため Codex 同士で行い、格の差・独立した CLI・受け入れ条件の ○/× 判定で補う。Claude は予備 |
+| P2 | **レビューは原則 codex_sol_reviewer が独立して担当** | 2026-11-16 からは Claude のトークン節約のため Codex 同士で行い、独立した CLI・受け入れ条件の ○/× 判定で補う。Claude は予備。astra は最後の手段 |
 | P3 | **常時動かすのは 3〜4 役**（リーダー・実装・レビュー、必要時に調査） | 役を増やすほど調整コストとコンテキスト断片化（Silent Divergence）が増える |
 | P4 | **上位で考え、中位で書き、下位で調べる** | モデル段階分けでコストを抑える。調査は要約と根拠パスだけ返す |
 | P5 | **テストを書く役の分離は重要変更だけ** | テスト改ざん（アサーションを弱める）を防げるが、遅延とコストが増える |
@@ -59,13 +59,12 @@
 
 | 実装した担当 | レビュー担当（主） | 予備 |
 |---|---|---|
-| `codex_luna_coder`、`codex_terra_coder`、`codex_sol_frontend` | `codex_sol_reviewer`（effort high） | `claude_sonnet_reviewer` |
-| `codex_sol_coder`、`codex_astra_coder`、重要変更 | `codex_astra_reviewer` | `claude_sonnet_reviewer` |
-| agy 経由（`agy_*_coder`, `agy_sonnet_frontend`） | `codex_sol_reviewer` | `claude_sonnet_reviewer` |
+| 全ての実装（luna / terra / sol / astra / frontend / agy 経由）、重要変更 | `codex_sol_reviewer`（effort high） | `claude_sonnet_reviewer` |
+| sol_reviewer で 2 回まとまらない時 | `codex_astra_reviewer` | `claude_sonnet_reviewer` |
 
-標準の実装は `codex_terra_coder`（GPT-6.1 Terra）。差し戻しが 2 回を超えたら terra → sol → astra → ユーザーの順に格上げする。terra の実力は運用で確かめ、差し戻しが増えるようなら標準を sol に戻す。
+標準の実装は `codex_terra_coder`（GPT-6.1 Terra）。差し戻しが 2 回を超えたら terra → sol → astra → ユーザーの順に格上げする。luna は terra へ差し戻す。原因不明の不具合は、まず terra（または sol_reviewer）に読むだけの調査として頼む。
 
-セキュリティ診断も同じ考え方（主 `codex_sol_security`、Codex が実装した変更では `claude_sonnet_security` を優先）。
+重要変更のうち認証・権限・決済・外部公開に関わるものは、別系統の `claude_sonnet_security` にもセキュリティ診断を頼む。
 
 ## 変更点の一覧
 
