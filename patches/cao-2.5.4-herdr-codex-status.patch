@@ -1,0 +1,72 @@
+--- a/providers/codex.py
++++ b/providers/codex.py
+@@ -1168,6 +1168,9 @@
+         """Initialize provider state."""
+         super().__init__(terminal_id, session_name, window_name, allowed_tools, skill_prompt)
+         self._initialized = False
++        self._native_processing_since = None
++        self._native_screen_checked = None
++        self._native_screen_status = TerminalStatus.PROCESSING
+         self._agent_profile = agent_profile
+         # Explicit per-call override for profile.model, see _build_codex_command.
+         self._model = model
+@@ -1224,6 +1227,8 @@
+     def mark_input_received(self) -> None:
+         """Start a logical dispatch and reset stale-screen attribution."""
+         super().mark_input_received()
++        self._native_processing_since = None
++        self._native_screen_checked = None
+         with self._dispatch_lock:
+             self._logical_dispatch_id += 1
+             self._dispatch_message = None
+@@ -1233,6 +1238,8 @@
+     def mark_redelivery_received(self) -> None:
+         """Start another delivery attempt without changing the logical ID."""
+         super().mark_input_received()
++        self._native_processing_since = None
++        self._native_screen_checked = None
+         with self._dispatch_lock:
+             self._dispatch_message = None
+             self._pre_dispatch_body = None
+@@ -2032,6 +2039,41 @@
+         # Native status (herdr): trust the backend's agent state when available;
+         # on herdr the buffer is never fed, so buffer parsing can't leave UNKNOWN.
+         native = self._resolve_native_status(output)
++        if native == TerminalStatus.PROCESSING:
++            now = time.monotonic()
++            if self._native_processing_since is None:
++                self._native_processing_since = now
++            if now - self._native_processing_since < 300:
++                return native
++            if self._native_screen_checked is None or now - self._native_screen_checked >= 30:
++                self._native_screen_checked = now
++                frame = self._resolve_buffer(None)
++                if frame and not self._initialized and not self._ends_turns_with_footer:
++                    version = self._codex_version if any(self._codex_version) else _banner_version(strip_terminal_escapes(frame))
++                    if any(version):
++                        self._codex_version = version
++                        self._ends_turns_with_footer = version >= COMPLETION_FOOTER_MIN_VERSION and any(
++                            re.search(TUI_FOOTER_PATTERN, line)
++                            for line in strip_terminal_escapes(frame).strip().splitlines()[-IDLE_PROMPT_TAIL_LINES:]
++                        )
++                if not frame:
++                    status = TerminalStatus.UNKNOWN
++                elif not self._ends_turns_with_footer:
++                    # Without a reliable completion footer, only a bare composer
++                    # proves there is no visible turn that could still be streaming.
++                    status = TerminalStatus.IDLE if re.fullmatch(IDLE_PROMPT_STRICT_PATTERN, strip_terminal_escapes(frame).strip()) else TerminalStatus.PROCESSING
++                else:
++                    status = self._status_of_frame(frame, footer_mode=True)
++                if status in (TerminalStatus.IDLE, TerminalStatus.COMPLETED):
++                    if self._initialized and self.shell_baseline and self._exited_to_shell(fresh=True):
++                        self._native_screen_status = TerminalStatus.PROCESSING
++                    else:
++                        self._native_screen_status = TerminalStatus.COMPLETED if self._task_dispatched else TerminalStatus.IDLE
++                else:
++                    self._native_screen_status = TerminalStatus.PROCESSING
++            return self._native_screen_status
++        self._native_processing_since = None
++        self._native_screen_checked = None
+         if native is not None:
+             return native
+ 

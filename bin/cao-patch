@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Apply the bundled CAO 2.5.4 herdr pane patch; --check reports, --reverse removes.
+"""Apply the bundled CAO 2.5.4 patches; --check reports, --reverse removes.
 
 Exit status: 0 applied/removed, 1 not applied (--check), 2 unavailable/incompatible.
 """
@@ -19,7 +19,6 @@ def main(args):
         print('適用できません: cao と patch コマンドが必要です。', file=sys.stderr)
         return 2
     python = Path(cao).resolve().parent / 'python'
-    patchfile = Path(__file__).resolve().parents[1] / 'patches/cao-2.5.4-herdr-pane-spawn.patch'
     try:
         located = subprocess.run(
             [str(python), '-c', 'import json, cli_agent_orchestrator, importlib.metadata as m; from pathlib import Path; print(json.dumps([str(Path(cli_agent_orchestrator.__file__).parent), m.version("cli-agent-orchestrator")]))'],
@@ -32,35 +31,45 @@ def main(args):
         root = Path(package_path)
         if not root.is_absolute() or not (root / 'backends/herdr_backend.py').is_file():
             raise ValueError('CAO パッケージの場所を確認できません')
-        command = ['patch', '--batch', '--silent', '--no-backup-if-mismatch', '--reject-file=-', '-F0', '-p1', '-i', str(patchfile)]
-        def run(*options):
+        patchfiles = sorted((Path(__file__).resolve().parents[1] / 'patches').glob(f'cao-{version}-*.patch'))
+        if not patchfiles:
+            raise ValueError('対象のパッチがありません')
+        def run(patchfile, *options):
+            command = ['patch', '--batch', '--silent', '--no-backup-if-mismatch', '--reject-file=-', '-F0', '-p1', '-i', str(patchfile)]
             return subprocess.run(command + list(options), cwd=root, text=True, capture_output=True, timeout=20)
-        if run('--dry-run', '--reverse', '--forward').returncode == 0:
-            if args == ['--reverse']:
-                reversed_patch = run('--reverse', '--forward')
-                if reversed_patch.returncode:
-                    print('逆適用できません:\n' + reversed_patch.stdout + reversed_patch.stderr, file=sys.stderr)
+        states = []
+        for patchfile in patchfiles:
+            applied = run(patchfile, '--dry-run', '--reverse', '--forward').returncode == 0
+            if not applied:
+                pending = run(patchfile, '--dry-run', '--forward')
+                if pending.returncode:
+                    print('適用できません: インストール済み CAO とパッチが一致しません。\n' + pending.stdout + pending.stderr, file=sys.stderr)
                     return 2
-                print('逆適用しました: CAO 2.5.4 herdr pane spawn（cao-server の再起動は行いません）')
-                return 0
-            print('適用済み: CAO 2.5.4 herdr pane spawn')
-            return 0
-        pending = run('--dry-run', '--forward')
-        if pending.returncode != 0:
-            print('適用できません: インストール済み CAO とパッチが一致しません。\n' + pending.stdout + pending.stderr, file=sys.stderr)
-            return 2
+            states.append((patchfile, applied))
         if args == ['--reverse']:
-            print('逆適用済み（未適用）: CAO 2.5.4 herdr pane spawn')
-            return 0
-        if args == ['--check']:
-            print('未適用: cao-patch を実行してください。')
-            return 1
-        applied = run('--forward')
-        if applied.returncode != 0:
-            print('適用できません:\n' + applied.stdout + applied.stderr, file=sys.stderr)
-            return 2
-        print('適用しました: CAO 2.5.4 herdr pane spawn（cao-server の再起動は行いません）')
-        return 0
+            states.reverse()
+        missing = False
+        for patchfile, applied in states:
+            label = patchfile.stem
+            if args == ['--check']:
+                print(('適用済み: ' if applied else '未適用: ') + label)
+                missing |= not applied
+            elif args == ['--reverse']:
+                if applied:
+                    result = run(patchfile, '--reverse', '--forward')
+                    if result.returncode:
+                        print('逆適用できません:\n' + result.stdout + result.stderr, file=sys.stderr)
+                        return 2
+                print(('逆適用しました: ' if applied else '逆適用済み（未適用）: ') + label)
+            elif applied:
+                print('適用済み: ' + label)
+            else:
+                result = run(patchfile, '--forward')
+                if result.returncode:
+                    print('適用できません:\n' + result.stdout + result.stderr, file=sys.stderr)
+                    return 2
+                print('適用しました: ' + label + '（cao-server の再起動は行いません）')
+        return 1 if missing else 0
     except (OSError, ValueError, subprocess.SubprocessError) as exc:
         print(f'適用できません: {exc}', file=sys.stderr)
         return 2

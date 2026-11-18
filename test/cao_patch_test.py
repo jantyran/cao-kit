@@ -14,19 +14,23 @@ REPO = Path(__file__).resolve().parents[1]
 
 class PatchTest(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory()
+        (REPO / '.cao/tmp').mkdir(parents=True, exist_ok=True)
+        self.tmp = tempfile.TemporaryDirectory(dir=REPO / '.cao/tmp')
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
         self.pkg = self.root / 'pkg'
         self.pkg.mkdir()
-        installed = Path(__import__('cli_agent_orchestrator').__file__).parent
-        shutil.copytree(installed / 'backends', self.pkg / 'backends')
+        original = Path(importlib.util.find_spec('cli_agent_orchestrator').origin).parent
+        shutil.copytree(original / 'backends', self.pkg / 'backends')
+        shutil.copytree(original / 'providers', self.pkg / 'providers')
+        for applied_patch in reversed(sorted((REPO / 'patches').glob('cao-2.5.4-*.patch'))):
+            command = ['patch', '--batch', '--silent', '-F0', '-p1', '-R', '--forward', '-i', str(applied_patch)]
+            if subprocess.run(command + ['--dry-run'], cwd=self.pkg, capture_output=True).returncode == 0:
+                subprocess.run(command, cwd=self.pkg, check=True)
+            else:
+                subprocess.run(['patch', '--batch', '--silent', '-F0', '-p1', '--forward', '--dry-run', '-i', str(applied_patch)], cwd=self.pkg, check=True, capture_output=True)
         self.patchfile = REPO / 'patches/cao-2.5.4-herdr-pane-spawn.patch'
-        # Normalize to unpatched baseline, regardless of the real installation.
-        reverse = ['patch', '--batch', '--silent', '--no-backup-if-mismatch',
-                   '--reject-file=-', '-F0', '-p1', '-R', '--forward', '-i', str(self.patchfile)]
-        if subprocess.run(reverse + ['--dry-run'], cwd=self.pkg, capture_output=True).returncode == 0:
-            subprocess.run(reverse, cwd=self.pkg, capture_output=True, check=True)
+        self.statusfile = REPO / 'patches/cao-2.5.4-herdr-codex-status.patch'
         self.fakebin = self.root / 'bin'
         self.fakebin.mkdir()
         cao = self.fakebin / 'cao'
@@ -44,6 +48,7 @@ class PatchTest(unittest.TestCase):
 
     def test_check_apply_repeat_and_reverse(self):
         before = (self.pkg / 'backends/herdr_backend.py').read_bytes()
+        status_before = (self.pkg / 'providers/codex.py').read_bytes()
         check = self.run_patch('--check')
         self.assertEqual(check.returncode, 1, check.stderr)
         self.assertIn('未適用', check.stdout)
@@ -52,6 +57,8 @@ class PatchTest(unittest.TestCase):
         self.assertEqual(first.returncode, 0, first.stdout + first.stderr)
         after = (self.pkg / 'backends/herdr_backend.py').read_bytes()
         self.assertNotEqual(after, before)
+        self.assertNotEqual((self.pkg / 'providers/codex.py').read_bytes(), status_before)
+        self.assertLess(first.stdout.index(self.statusfile.stem), first.stdout.index(self.patchfile.stem))
         for args in [(), ('--check',)]:
             again = self.run_patch(*args)
             self.assertEqual(again.returncode, 0, again.stdout + again.stderr)
@@ -61,18 +68,30 @@ class PatchTest(unittest.TestCase):
         reverse = subprocess.run(['patch','--batch','-p1','-R','--forward','-i',str(self.patchfile)],cwd=self.pkg,capture_output=True)
         self.assertEqual(reverse.returncode, 0)
         self.assertEqual((self.pkg / 'backends/herdr_backend.py').read_bytes(), before)
+        self.assertEqual(self.run_patch('--check').returncode, 1)
 
     def test_reverse_cli_restores_baseline_and_allows_reapply(self):
         before = (self.pkg / 'backends/herdr_backend.py').read_bytes()
+        status_before = (self.pkg / 'providers/codex.py').read_bytes()
         self.assertEqual(self.run_patch().returncode, 0)
         reverse = self.run_patch('--reverse')
         self.assertEqual(reverse.returncode, 0, reverse.stdout + reverse.stderr)
         self.assertIn('逆適用', reverse.stdout)
+        self.assertLess(reverse.stdout.index(self.patchfile.stem), reverse.stdout.index(self.statusfile.stem))
+        self.assertEqual((self.pkg / 'providers/codex.py').read_bytes(), status_before)
         self.assertEqual((self.pkg / 'backends/herdr_backend.py').read_bytes(), before)
         self.assertEqual(self.run_patch('--check').returncode, 1)
         self.assertEqual(self.run_patch('--reverse').returncode, 0)
         self.assertEqual(self.run_patch().returncode, 0)
         self.assertEqual(self.run_patch('--check').returncode, 0)
+
+    def test_check_fails_when_only_status_patch_is_missing(self):
+        self.assertEqual(self.run_patch().returncode, 0)
+        subprocess.run(['patch', '--batch', '--silent', '-p1', '-R', '--forward', '-i', str(self.statusfile)], cwd=self.pkg, check=True)
+        result = self.run_patch('--check')
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn('未適用: ' + self.statusfile.stem, result.stdout)
+        self.assertIn('適用済み: ' + self.patchfile.stem, result.stdout)
 
     def test_incompatible_installation_fails_without_mutating(self):
         file = self.pkg / 'backends/herdr_backend.py'
