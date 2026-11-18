@@ -49,6 +49,7 @@ def main(args):
         if args == ['--reverse']:
             states.reverse()
         missing = False
+        applied_this_run = []
         for patchfile, applied in states:
             label = patchfile.stem
             if args == ['--check']:
@@ -67,7 +68,13 @@ def main(args):
                 result = run(patchfile, '--forward')
                 if result.returncode:
                     print('適用できません:\n' + result.stdout + result.stderr, file=sys.stderr)
+                    for rolled in reversed(applied_this_run):
+                        if run(rolled, '--reverse').returncode:
+                            print(f'元に戻せませんでした: {rolled.stem}。cao-patch --reverse を実行してください。', file=sys.stderr)
+                        else:
+                            print(f'元に戻しました: {rolled.stem}', file=sys.stderr)
                     return 2
+                applied_this_run.append(patchfile)
                 print('適用しました: ' + label + '（cao-server の再起動は行いません）')
         return 1 if missing else 0
     except (OSError, ValueError, subprocess.SubprocessError) as exc:

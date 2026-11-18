@@ -1,0 +1,93 @@
+--- a/providers/codex.py
++++ b/providers/codex.py
+@@ -2020,7 +2020,16 @@
+         return True
+ 
+     def get_status(self, output: str) -> TerminalStatus:
+-        return self._get_status(output, rendered=False)
++        status = self._get_status(output, rendered=False)
++        if status == TerminalStatus.COMPLETED and self._task_dispatched:
++            # herdr calls a turn that ended in an error cell (usage limit) "done".
++            if getattr(self, "_error_checked", (None,))[0] != self._logical_dispatch_id:
++                frame = self._resolve_buffer(None)  # once per turn
++                is_error = bool(frame and self._status_of_frame(frame, footer_mode=False) == TerminalStatus.ERROR)
++                self._error_checked = (self._logical_dispatch_id, is_error)
++            if self._error_checked[1]:
++                return TerminalStatus.ERROR
++        return status
+ 
+     def _get_status(self, output: str, *, rendered: bool) -> TerminalStatus:
+         """Detect the status of ``output``, a rendered screen or the raw stream.
+@@ -2276,7 +2285,8 @@
+                     ERROR_PATTERN,
+                     output_after_last_user,
+                     re.IGNORECASE | re.MULTILINE,
+-                ):
++                ) or re.search(ERROR_CELL_PATTERN, output_after_last_user, re.MULTILINE):
++                    # A "■" cell with no reply after the user message: usage limit etc.
+                     return TerminalStatus.ERROR
+         else:
+             if re.search(WAITING_PROMPT_PATTERN, tail_output, re.IGNORECASE | re.MULTILINE):
+--- a/services/agent_step.py
++++ b/services/agent_step.py
+@@ -24,6 +24,7 @@
+ 
+ import asyncio
+ import logging
++import re
+ import time
+ from typing import Callable, Optional
+ 
+@@ -42,6 +43,7 @@
+ from cli_agent_orchestrator.services.step_fingerprint import StepCallFields, compute
+ from cli_agent_orchestrator.services.terminal_service import OutputMode
+ from cli_agent_orchestrator.utils.terminal import wait_until_status
++from cli_agent_orchestrator.utils.text import strip_terminal_escapes
+ 
+ logger = logging.getLogger(__name__)
+ 
+@@ -165,6 +167,24 @@
+         self.terminal_id = terminal_id
+ 
+ 
++def _error_cell_text(terminal_id: str) -> str:
++    """Return ": <text>" of this turn's "■" error cell on the pane (Codex usage limit), or ""."""
++    lines = strip_terminal_escapes(terminal_service.get_output_context(terminal_id) or "").splitlines()
++    users = [i for i, line in enumerate(lines) if re.match(r"[›»]\s*\S", line)]
++    if users and sum(1 for line in lines[users[-1] + 1 :] if line.strip()) <= 1:
++        users.pop()  # the trailing composer ("› Ask Codex"), not a user message
++    start = users[-1] + 1 if users else 0
++    cell = [i for i in range(start, len(lines)) if re.match(r"■\s", lines[i])]
++    if not cell:
++        return ""
++    text = []
++    for line in lines[cell[-1] :]:
++        if text and (not line.strip() or line[0] in "›•─"):
++            break
++        text.append(line)
++    return ": " + re.sub(r"\s+", " ", " ".join(text))[:500]
++
++
+ async def _wait_for_completion(
+     terminal_id: str,
+     timeout: float,
+@@ -237,7 +257,8 @@
+         current = await asyncio.to_thread(status_monitor.get_status, terminal_id)
+         if current == TerminalStatus.ERROR:
+             raise StepExecutionError(
+-                f"terminal {terminal_id} reached ERROR status",
++                f"terminal {terminal_id} reached ERROR status"
++                + await asyncio.to_thread(_error_cell_text, terminal_id),
+                 kind="error",
+                 terminal_id=terminal_id,
+             )
+@@ -272,7 +293,8 @@
+                 await asyncio.to_thread(status_monitor.get_status, terminal_id)
+             ) == TerminalStatus.ERROR:
+                 raise StepExecutionError(
+-                    f"terminal {terminal_id} reached ERROR status",
++                    f"terminal {terminal_id} reached ERROR status"
++                    + await asyncio.to_thread(_error_cell_text, terminal_id),
+                     kind="error",
+                     terminal_id=terminal_id,
+                 )

@@ -23,8 +23,10 @@ class PatchTest(unittest.TestCase):
         original = Path(importlib.util.find_spec('cli_agent_orchestrator').origin).parent
         shutil.copytree(original / 'backends', self.pkg / 'backends')
         shutil.copytree(original / 'providers', self.pkg / 'providers')
+        (self.pkg / 'services').mkdir()
+        shutil.copy2(original / 'services/agent_step.py', self.pkg / 'services/agent_step.py')
         for applied_patch in reversed(sorted((REPO / 'patches').glob('cao-2.5.4-*.patch'))):
-            command = ['patch', '--batch', '--silent', '-F0', '-p1', '-R', '--forward', '-i', str(applied_patch)]
+            command = ['patch', '--batch', '--silent', '--no-backup-if-mismatch', '-F0', '-p1', '-R', '--forward', '-i', str(applied_patch)]
             if subprocess.run(command + ['--dry-run'], cwd=self.pkg, capture_output=True).returncode == 0:
                 subprocess.run(command, cwd=self.pkg, check=True)
             else:
@@ -98,6 +100,24 @@ class PatchTest(unittest.TestCase):
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
         self.assertIn('未適用: ' + self.statusfile.stem, result.stdout)
         self.assertIn('適用済み: ' + self.patchfile.stem, result.stdout)
+
+    def test_rollback_when_subsequent_patch_fails_during_apply(self):
+        before = {p: p.read_bytes() for p in self.pkg.rglob('*.py')}
+        fake_patch = self.fakebin / 'patch'
+        fake_patch.write_text(f"""#!{sys.executable}
+import sys, subprocess
+args = sys.argv[1:]
+if '--dry-run' not in args and '--reverse' not in args and any('herdr-codex-status' in a for a in args):
+    sys.stderr.write('simulated patch failure\\n')
+    sys.exit(1)
+sys.exit(subprocess.run(['/usr/bin/patch', *args]).returncode)
+""")
+        fake_patch.chmod(0o755)
+        result = self.run_patch()
+        self.assertEqual(result.returncode, 2)
+        self.assertIn('適用できません', result.stderr)
+        self.assertIn('元に戻しました: cao-2.5.4-codex-rollout-output', result.stderr)
+        self.assertEqual({p: p.read_bytes() for p in self.pkg.rglob('*.py')}, before)
 
     def test_incompatible_installation_fails_without_mutating(self):
         file = self.pkg / 'backends/herdr_backend.py'

@@ -40,6 +40,7 @@ cao-dev -h | --help                        # ヘルプを表示
 - `~/.codex/config.toml` が存在し対象フォルダが未登録なら、`[projects."<dir>"] trust_level = "trusted"` を追記する（「Trust this folder?」ダイアログでタスク配送が止まるのを防ぐ）。
 - `git -C <dir> rev-parse --path-format=absolute --git-path info/exclude` で `.cao/` をローカル除外に追加する（通常の git リポジトリと linked worktree の両方に対応）。
 - `cao-server` が応答しなければ `systemctl --user start cao-server.service` で起動し、最大 15 秒待つ。
+- 端末バックエンドが herdr で、herdr のサーバーが止まっていれば、起動してから立ち上げる（前のセッションを閉じたときに herdr ごと止まり、cao-server を再起動するまで立ち上げられなくなるのを防ぐ）。
 - `cao-doctor --brief` を実行し、CLI バージョン変化やパッチ未適用があれば標準エラーに表示する（起動は止めない）。
 - セッション名はプロジェクト名を小文字・ハイフン化した `cao-<project>`（すでに `cao-` で始まるプロジェクト名でも `cao-cao-...` にはならない）。既定以外のリーダー指定時は `-agy` や `-codex` などの接尾辞が付く。
 - 同名の既存セッションが**別のフォルダ**で動いている場合は、取り違えを防ぐためエラーで停止する。
@@ -48,8 +49,9 @@ cao-dev -h | --help                        # ヘルプを表示
 
 既存セッションがある場合、リーダーがすでに終了してシェルに戻っていないかを判定する（`leader_exited`）。
 
-1. CAO API `http://localhost:9889/sessions/<sess>` からリーダーのターミナル（`agent_profile` が `*_lead`、なければ先頭）の `tmux_window` と `status` を取得する。
-2. **herdr バックエンドの場合**:
+1. CAO API `http://localhost:9889/sessions/<sess>` の `terminals` が 0 件なら、リーダーのいない残骸（同じ名前のワークスペースだけが残っている状態）として「終了」と判定する。
+2. CAO API `http://localhost:9889/sessions/<sess>` からリーダーのターミナル（`agent_profile` が `*_lead`、なければ先頭）の `tmux_window` と `status` を取得する。
+3. **herdr バックエンドの場合**:
    - ワークスペース（`label == <sess>`）とリーダーのタブ（`label == <tmux_window>`）を探す。
    - ワークスペースまたはタブが見つからない場合:
      - CAO の `status` が `unknown` 以外なら「生きている」とみなす。
@@ -58,10 +60,10 @@ cao-dev -h | --help                        # ヘルプを表示
      - そのタブ内のラベルなしペイン（`label == ""`）を調べる。
      - 1 つでも `agent` フィールドが付いていれば「生きている」とみなす（同じタブにユーザーが自分で開いたシェルペインが同居していても誤判定しない）。
      - すべてのラベルなしペインの `terminal_title` がシェルのプロンプト形式（`user@host:`）で、**かつ** CAO の `status` が `unknown` のときだけ「終了」と判定する（`codex` や `agy` のリーダーには herdr の `agent` が付かないことがあるため、`status` が `idle` / `processing` / `completed` なら生きているとみなす）。
-3. **tmux バックエンドの場合**:
+4. **tmux バックエンドの場合**:
    - CAO の `status` が `unknown` で、かつ `tmux list-panes -t "$sess:$window" -F '#{pane_current_command}'` の**すべてのペイン**がシェル（`bash` / `zsh` / `sh`）のときだけ「終了」と判定する。
-4. **安全側の原則**: API やコマンドの失敗、複数ヒットなど、確実に判定できない場合はすべて「生きている」とみなす。
-5. **片付けと再起動**:
+5. **安全側の原則**: API やコマンドの失敗、複数ヒットなど、確実に判定できない場合はすべて「生きている」とみなす。
+6. **片付けと再起動**:
    - 「終了」と判定された場合、`cao shutdown --session <sess>` で古いセッションを片付け、`cao-recap` を実行してから新しいセッションを起動して画面を切り替える。
    - `herdr` や `tmux` の内部から実行された場合は、`shutdown` で自分自身のペインが閉じても再起動処理が止まらないよう、`CAO_DEV_RESTART=1 setsid nohup` で切り離して実行する（ログは `<project>/.cao/tmp/cao-dev-restart.log`）。
 
@@ -113,6 +115,7 @@ cao-doctor -h | --help
 ## `cao-patch` — CAO 本体へのパッチ管理
 
 インストール済みの CAO 2.5.4（`site-packages/cli_agent_orchestrator`）に対して、`patches/cao-2.5.4-*.patch` をファイル名順に適用・確認・逆適用する（各パッチの内容は [docs/architecture.md](architecture.md) を参照）。
+複数パッチの適用途中で失敗した場合は、その回に当てたパッチを自動で逆順に元に戻す。
 
 ### 書式
 

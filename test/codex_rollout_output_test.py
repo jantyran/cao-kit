@@ -406,8 +406,12 @@ class LifecycleTest(unittest.TestCase):
             pkg = root / 'pkg'
             shutil.copytree(PKG / 'providers', pkg / 'providers')
             shutil.copytree(PKG / 'backends', pkg / 'backends')
+            (pkg / 'services').mkdir()
+            shutil.copy2(PKG / 'services/agent_step.py', pkg / 'services/agent_step.py')
             for file in reversed(PATCHES):
-                subprocess.run(['patch', '--batch', '--silent', '-F0', '-p1', '-R', '-i', str(file)], cwd=pkg, check=True)
+                command = ['patch', '--batch', '--silent', '-F0', '-p1', '-R', '-i', str(file)]
+                if subprocess.run(command + ['--dry-run'], cwd=pkg, capture_output=True).returncode == 0:  # not applied yet on a fresh install
+                    subprocess.run(command, cwd=pkg, check=True)
             baseline = {path.relative_to(pkg): path.read_bytes() for path in pkg.rglob('*.py')}
             fakebin = root / 'bin'
             fakebin.mkdir()

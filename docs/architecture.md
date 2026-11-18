@@ -125,6 +125,7 @@ CAO 本体（2.5.4）の `site-packages/cli_agent_orchestrator` に対する修�
 - `bin/cao-patch` はインストール済みの CAO バージョンが `2.5.4` であることを確かめ、`patches/cao-2.5.4-*.patch` を**ファイル名の辞書順**に `patch -p1` で適用する。
 - `bin/cao-patch --check` は全パッチの適用状態を確認し、1 つでも未適用があれば終了コード `1` を返す。`cao-doctor`（`terminal.backend = herdr` のとき）も内部で `--check` を呼び、未適用なら警告を出す。
 - `bin/cao-patch --reverse` は逆順にパッチを外す。
+- 現在のパッチ: `herdr-pane-spawn`（ペイン生成）、`herdr-codex-status`（Codex の状態の再確認）、`codex-rollout-output`（Codex の結果の取得）、`codex-error-cell`（Codex の利用上限などのエラーセルを ERROR にし、`handoff` の失敗メッセージに本文を入れる）。
 - パッチは Python コードを変更するため、**適用後に `cao-server` を再起動するまで稼働中のサーバーには反映されない**。
 
 ### 同梱パッチ一覧
