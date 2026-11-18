@@ -103,7 +103,7 @@ json_array() {
 for dir in team claude codex agy; do link "$repo/agents/$dir" "$CAO_HOME_DIR/agents/$dir"; done
 link "$repo/local/agents" "$CAO_HOME_DIR/agents/local"
 for skill in ponytail ponytail-audit ponytail-review; do link "$repo/skills/$skill" "$CAO_HOME_DIR/skills/$skill"; done
-for cmd in cao-dev cao-doctor cao-models cao-trace cao-patch; do link "$repo/bin/$cmd" "$HOME/.local/bin/$cmd"; done
+for cmd in cao-dev cao-recap cao-doctor cao-models cao-trace cao-patch; do link "$repo/bin/$cmd" "$HOME/.local/bin/$cmd"; done
 link "$repo/codex/cao.config.toml" "$HOME/.codex/cao.config.toml"
 link "$repo/codex/cao-ro.config.toml" "$HOME/.codex/cao-ro.config.toml"
 apply_codex_notice

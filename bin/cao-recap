@@ -1,0 +1,50 @@
+#!/usr/bin/env python3
+import argparse
+from collections import deque
+from datetime import datetime
+import json
+from pathlib import Path
+import re
+import subprocess
+
+parser = argparse.ArgumentParser()
+parser.add_argument('project_dir')
+parser.add_argument('--exclude')
+args = parser.parse_args()
+project = Path(args.project_dir).resolve()
+logs = Path.home() / '.claude' / 'projects' / re.sub(r'[^a-zA-Z0-9-]', '-', str(project))
+files = [p for p in logs.glob('*.jsonl') if p.stem != args.exclude]
+if files:
+    source = max(files, key=lambda p: p.stat().st_mtime)
+    entries = deque(maxlen=30)
+    with source.open('rb') as stream:
+        stream.seek(0, 2)
+        size = stream.tell()
+        stream.seek(max(0, size - 4 * 1024 * 1024))
+        if size > 4 * 1024 * 1024:
+            stream.readline()
+        for raw_line in stream:
+            if len(raw_line) > 256 * 1024:
+                continue
+            line = raw_line.decode('utf-8', errors='replace')
+            try:
+                row = json.loads(line)
+                if row.get('type') not in ('user', 'assistant'):
+                    continue
+                content = row.get('message', {}).get('content', '')
+                if isinstance(content, list):
+                    content = '\n'.join(block.get('text', '') for block in content if isinstance(block, dict) and block.get('type') == 'text' and isinstance(block.get('text'), str))
+                if isinstance(content, str) and content.strip():
+                    entries.append((row['type'], content[:800]))
+            except (ValueError, AttributeError):
+                continue
+    result = subprocess.run(['git', '-C', str(project), 'rev-parse', '--path-format=absolute', '--git-path', 'info/exclude'], capture_output=True, text=True)
+    if result.returncode == 0:
+        exclude = Path(result.stdout.strip())
+        if not exclude.exists() or '.cao/' not in exclude.read_text().splitlines():
+            with exclude.open('a') as stream:
+                stream.write('\n.cao/\n')
+    target = project / '.cao' / 'last-session.md'
+    target.parent.mkdir(parents=True, exist_ok=True)
+    updated = datetime.fromtimestamp(source.stat().st_mtime).astimezone().isoformat(timespec='seconds')
+    target.write_text(f'# 前回の会話\n\nID: {source.stem}\n最終更新: {updated}\n元ファイル: {source}\n\n' + ''.join(f'## {role}\n\n{text}\n\n' for role, text in entries), encoding='utf-8')

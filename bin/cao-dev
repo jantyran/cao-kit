@@ -39,7 +39,7 @@ case "$arg" in
   .|..|*/*) dir="$arg" ;;
   *) dir="$ROOT/$arg"; [[ -d "$dir" ]] || [[ ! -d "$HOME/$arg" ]] || dir="$HOME/$arg" ;;
 esac
-[[ -d "$dir" ]] || { echo "プロジェクトが見つかりません: $arg" >&2; echo "候補（$ROOT）:" >&2; ls -1d "$ROOT"/*/ | xargs -n1 basename | sed 's/^/  /' >&2; exit 1; }
+[[ -d "$dir" ]] || { echo "プロジェクトが見つかりません: $arg" >&2; echo "候補（$ROOT）:" >&2; if [[ -d "$ROOT" ]]; then find "$ROOT" -mindepth 1 -maxdepth 1 -type d -printf "  %f\n" >&2; else echo "  候補を表示できません。" >&2; fi; exit 1; }
 dir=$(cd -- "$dir" && pwd -P)
 proj=$(basename -- "$dir")
 [[ "$dir" != "$HOME" && "$dir" != / ]] || { echo "ホームや / そのものでは起動できません。プロジェクトのフォルダを指定してください。" >&2; exit 1; }
@@ -52,8 +52,9 @@ if [[ -f "$CODEX_CFG" ]] && ! grep -qF "[projects.\"$dir\"]" "$CODEX_CFG"; then
 fi
 
 # 指示書置き場 .cao/ を git の差分に出さない（ローカル除外のみ・コミットされない）
-if [[ -d "$dir/.git" ]] && ! grep -qx '.cao/' "$dir/.git/info/exclude" 2>/dev/null; then
-  echo '.cao/' >> "$dir/.git/info/exclude"
+exclude=$(git -C "$dir" rev-parse --path-format=absolute --git-path info/exclude 2>/dev/null) || exclude=''
+if [[ -n "$exclude" ]] && ! grep -qxF '.cao/' "$exclude" 2>/dev/null; then
+  echo '.cao/' >> "$exclude"
 fi
 
 # cao-server が止まっていれば systemd で起動して、最大 15 秒待つ
@@ -87,26 +88,91 @@ attach_or_switch() {
 suffix=""; [[ "$PROFILE" != "claude_opus_lead" ]] && suffix="-${PROFILE%%_*}"
 # セッション名は cao-<プロジェクト名>（CAO が cao- を付ける）
 name="$(echo "$proj" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9\n-' '-')$suffix"
-if cao session list 2>/dev/null | grep -q "^cao-$name\b"; then
-  # 同じ名前の別フォルダのプロジェクトに誤って接続しないよう、作業フォルダを確かめる
-  other=$(curl -sf "http://localhost:9889/sessions/cao-$name" | python3 -c 'import json,sys; t=json.load(sys.stdin)["terminals"]; print(t[0]["working_directory"] if t else "")' || true)
-  if [[ -n "$other" && "$other" != "$dir" ]]; then
-    echo "セッション cao-$name は別のフォルダ（$other）で動いています。そちらを止めるか、フォルダ名を変えてください。" >&2; exit 1
+sess="cao-${name#cao-}"
+# 明確にシェルへ戻った場合だけ終了と判定する。
+leader_exited() {
+  local session_data terminal window status retry=${1:-1}
+  session_data=$(curl -sf "http://localhost:9889/sessions/$sess") || return 1
+  terminal=$(jq -ec '[.terminals[] | select((.agent_profile // "") | endswith("_lead"))][0] // .terminals[0] | select(type == "object")' <<< "$session_data") || return 1
+  window=$(jq -er '.tmux_window | select(type == "string" and length > 0)' <<< "$terminal") || return 1
+  status=$(jq -er '.status | select(type == "string" and length > 0)' <<< "$terminal") || return 1
+  if [[ "$BACKEND" == herdr ]]; then
+    local workspaces ws tabs tab panes state
+    workspaces=$(herdr --session "$HERDR_SESSION" workspace list) || return 1
+    ws=$(jq -er --arg n "$sess" '[.result.workspaces[] | select(.label == $n) | .workspace_id] | if length == 0 then "missing" elif length == 1 then .[0] else error("ambiguous") end' <<< "$workspaces") || return 1
+    if [[ "$ws" == missing ]]; then
+      [[ "$status" == unknown ]] || return 1
+      [[ "$retry" == 1 ]] || return 0
+      sleep 1
+      leader_exited 0
+      return
+    fi
+    tabs=$(herdr --session "$HERDR_SESSION" tab list) || return 1
+    tab=$(jq -er --arg ws "$ws" --arg window "$window" '[.result.tabs[] | select(.workspace_id == $ws and .label == $window) | .tab_id] | if length == 0 then "missing" elif length == 1 then .[0] else error("ambiguous") end' <<< "$tabs") || return 1
+    if [[ "$tab" == missing ]]; then
+      [[ "$status" == unknown ]] || return 1
+      [[ "$retry" == 1 ]] || return 0
+      sleep 1
+      leader_exited 0
+      return
+    fi
+    panes=$(herdr --session "$HERDR_SESSION" pane list) || return 1
+    state=$(jq -er --arg ws "$ws" --arg tab "$tab" '
+      [.result.panes[] | select(.workspace_id == $ws and .tab_id == $tab and ((.label // "") == ""))] |
+      if length == 0 then "unknown"
+      elif any(.[]; (.agent // "") != "") then "live"
+      elif all(.[]; (.terminal_title // "") | test("^[^[:space:]@]+@[^[:space:]:]+:")) then "shell"
+      else "unknown" end
+    ' <<< "$panes") || return 1
+    [[ "$state" == shell && "$status" == unknown ]]
+  elif [[ "$BACKEND" == tmux ]]; then
+    local commands command
+    [[ "$status" == unknown ]] || return 1
+    commands=$(tmux list-panes -t "$sess:$window" -F '#{pane_current_command}' 2>/dev/null) || return 1
+    [[ -n "$commands" ]] || return 1
+    while IFS= read -r command; do
+      [[ "$command" == bash || "$command" == zsh || "$command" == sh ]] || return 1
+    done <<< "$commands"
+    return 0
+  else
+    return 1
   fi
-  echo "既存セッション cao-$name があります。" >&2
-  if [[ $# -gt 0 ]]; then exec cao session send "cao-$name" "$*" --async; fi
-  attach_or_switch "cao-$name"
+}
+restarting=0
+if cao session list 2>/dev/null | grep -q "^$sess\b"; then
+  # 同じ名前の別フォルダのプロジェクトに誤って接続しないよう、作業フォルダを確かめる
+  other=$(curl -sf "http://localhost:9889/sessions/$sess" | python3 -c 'import json,sys; t=json.load(sys.stdin)["terminals"]; print(t[0]["working_directory"] if t else "")' || true)
+  if [[ -n "$other" && "$other" != "$dir" ]]; then
+    echo "セッション $sess は別のフォルダ（$other）で動いています。そちらを止めるか、フォルダ名を変えてください。" >&2; exit 1
+  fi
+  if leader_exited; then
+    echo "リーダーが終了しています。片付けて起動し直します。" >&2
+    if [[ "${CAO_DEV_RESTART:-}" != 1 && -n "${TMUX:-}${HERDR_PANE_ID:-}" ]]; then
+      mkdir -p "$dir/.cao/tmp"
+      CAO_DEV_RESTART=1 setsid nohup "$kit/bin/cao-dev" --lead "$PROFILE" "$dir" "$@" >"$dir/.cao/tmp/cao-dev-restart.log" 2>&1 < /dev/null &
+      exit 0
+    fi
+    cao shutdown --session "$sess"
+    restarting=1
+  else
+    echo "既存セッション $sess があります。" >&2
+    if [[ $# -gt 0 ]]; then exec cao session send "$sess" "$*" --async; fi
+    attach_or_switch "$sess"
+  fi
 fi
+
+"$kit/bin/cao-recap" "$dir" || true
 
 if [[ $# -gt 0 ]]; then
   cao launch --agents "$PROFILE" --session-name "$name" --working-directory "$dir" \
     --headless --auto-approve --async "$*"
-  echo "状況確認: cao session status cao-$name --workers / 接続: cao-dev $arg"
+  echo "状況確認: cao session status $sess --workers / 接続: cao-dev $arg"
+  [[ "$restarting" != 1 ]] || attach_or_switch "$sess"
 else
-  if [[ -n "${TMUX:-}${HERDR_PANE_ID:-}" ]]; then
+  if [[ -n "${TMUX:-}${HERDR_PANE_ID:-}${CAO_DEV_RESTART:-}${restarting/0/}" ]]; then
     # tmux/herdr 内ではネスト不可のため、ヘッドレス起動してからセッションを切り替える
     cao launch --agents "$PROFILE" --session-name "$name" --working-directory "$dir" --headless --auto-approve
-    attach_or_switch "cao-$name"
+    attach_or_switch "$sess"
   else
     exec cao launch --agents "$PROFILE" --session-name "$name" --working-directory "$dir" --auto-approve
   fi
