@@ -133,3 +133,4 @@ CAO 本体（2.5.4）の `site-packages/cli_agent_orchestrator` に対する修�
 |---|---|---|
 | `cao-2.5.4-herdr-codex-status.patch` | `providers/codex.py` | herdr バックエンドで Codex のネイティブ状態が `working`（`PROCESSING`）のまま戻らなくなる問題への対策。`PROCESSING` が 300 秒続いた場合、30 秒ごとに画面バッファ（`_resolve_buffer`）を読み直してフッターや入力欄プロンプトから実際の状態を判定し、入力待ちなら `IDLE` / `COMPLETED` に戻す |
 | `cao-2.5.4-herdr-pane-spawn.patch` | `backends/herdr_backend.py`, `backends/factory.py` | `terminal.spawn_mode = pane` のとき、ワーカーを新規タブではなく最初のタブ（リーダーのタブ）内のペイン分割（最大 4 ペイン・2×2 グリッド）で起動し、ペインラベルで識別できるようにする |
+| `cao-2.5.4-codex-rollout-output.patch` | `providers/codex.py` | handoff の結果を、codex の会話記録（rollout）から読む。読めなければ画面から切り出す |

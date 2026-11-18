@@ -15,6 +15,7 @@
 - **herdr バックエンドでの 2×2 ペイン分割と状態復帰パッチ**:
   - `cao-2.5.4-herdr-pane-spawn.patch`: ワーカーをリーダーと同じタブ内の 2×2 ペインに配置。
   - `cao-2.5.4-herdr-codex-status.patch`: herdr で Codex ワーカーが `processing` のまま戻らなくなる問題を、300 秒経過後の画面再確認（30 秒間隔）で解消。
+  - `cao-2.5.4-codex-rollout-output.patch`: handoff の結果を、codex の会話記録（rollout）から読む。読めなければ画面から切り出す。
 - **Codex ワーカーの停止原因の解消**:
   - 利用上限接近時のモデル切替ダイアログを `~/.codex/config.toml` の `hide_rate_limit_model_nudge = true` で抑止。
   - 読み取り専用プロファイル（`cao-ro`）でも `[mcp_servers.cao-mcp-server] default_tools_approval_mode = "approve"` により `send_message` 等の CAO MCP ツールを承認待ちなしで実行可能に。
@@ -28,7 +29,7 @@
 | 課題 | 原因・詳細 | 回避策・扱い |
 |---|---|---|
 | inbox の `delivered` が受信を保証しない | CAO の `inbox_service` はペインへの送信処理を行う前に状態を `DELIVERED` に更新するため、受信側 CLI が実際にテキストを受け取ったかは確かめていない | 応答がない場合は `cao-trace <terminal_id>` やワーカーのペイン画面を確認する |
-| Codex ワーカーの `handoff` 結果の本文が切れることがある | Codex ワーカーに対する `handoff` の戻り値が、画面末尾のステータス行だけを拾い、報告の本文が欠ける場合がある | `~/.codex/sessions/<日付>/rollout-*.jsonl` の最後の `assistant` の回答を読むか、ファイルに出力させる |
+| Codex ワーカーの `handoff` 結果の本文が切れることがある | Codex ワーカーに対する `handoff` の戻り値が、画面末尾のステータス行だけを拾い、報告の本文が欠ける場合がある | パッチ cao-2.5.4-codex-rollout-output で対応済み。cao-server の再起動後に有効。境界を記録できないときは、今までどおり画面から切り出す |
 | リーダーが作業中のあいだは `send_message` が届かない | CAO の inbox 配送は受信側が待機中（IDLE / COMPLETED）のときだけ行われる（仕様どおりの動作） | リーダーのターンが終わって入力待ちに戻ると自動で配送される |
 | `bin/cao-patch` で 2 つ目のパッチが失敗すると 1 つ目が残る | 事前の `--dry-run` 検証を通ったあとに本番適用で 2 つ目が失敗した場合、1 つ目は適用済みのまま終了する | `cao-patch --reverse` を実行して逆順に外す |
 | `cao-recap` の対象が Claude のリーダーのみ | `~/.claude/projects/` の JSONL 履歴を読む実装のため、予備リーダー（`agy_opus_lead` / `codex_sol_lead`）の会話は要約されない | 予備リーダー使用時は `.cao/tasks/` の指示書で文脈を引き継ぐ |

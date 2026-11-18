@@ -40,7 +40,7 @@
 
 ## パッチの適用と `cao-server` の再起動
 
-herdr バックエンドでの 2×2 ペイン表示（`cao-2.5.4-herdr-pane-spawn.patch`）と、Codex が `processing` のまま固まる問題の解消（`cao-2.5.4-herdr-codex-status.patch`）には、CAO 2.5.4 本体へのパッチ適用が必要（仕組みは [docs/architecture.md](architecture.md) を参照）。
+herdr バックエンドでの 2×2 ペイン表示（`cao-2.5.4-herdr-pane-spawn.patch`）、Codex が `processing` のまま固まる問題の解消（`cao-2.5.4-herdr-codex-status.patch`）、handoff の結果を codex の会話記録（rollout）から読む対応（`cao-2.5.4-codex-rollout-output.patch`。読めなければ画面から切り出す）には、CAO 2.5.4 本体へのパッチ適用が必要（仕組みは [docs/architecture.md](architecture.md) を参照）。
 
 ```bash
 # 1. 適用状態を確認（未適用があれば終了コード 1）
