@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # cao-dev: <プロジェクト置き場>/<project> で Claude(リーダー) + Codex(実装) + agy(調査・文章) の CAO セッションを起動
 #   cao-dev                           プロジェクト置き場（CAO_DEV_ROOT、既定 ~/projects）の中なら、そのプロジェクトで起動
+#   cao-dev（プロジェクトの外）  開いているセッションの画面（herdr）に入る
 #   cao-dev <project>                 対話モード（置き場になければ ~/<project> も探す）
 #   cao-dev <パス>                     置き場の外でも、パス（. や ~/foo、/path/to/foo）で指定できる
 #   cao-dev <project> "<依頼内容>"     ヘッドレスで依頼を投げて非同期実行
@@ -15,23 +16,60 @@ ROOT="${env_root:-${CAO_DEV_ROOT:-$HOME/projects}}"
 PROFILE="${env_lead:-${CAO_DEV_LEAD:-claude_opus_lead}}"
 
 usage() { sed -n '2,8p' "$0" | sed 's/^# \{0,1\}//'; }
+ensure_server() {
+  # cao-server が止まっていれば systemd で起動して、最大 15 秒待つ
+  if ! curl -sf http://localhost:9889/health >/dev/null; then
+    echo "cao-server を起動します…" >&2
+    systemctl --user start cao-server.service 2>/dev/null || true
+    for _ in $(seq 15); do curl -sf http://localhost:9889/health >/dev/null && break; sleep 1; done
+    curl -sf http://localhost:9889/health >/dev/null || {
+      echo "cao-server が起動できません。journalctl --user -u cao-server -n 30 で原因を確認してください。" >&2; exit 1; }
+  fi
+}
 # --lead <profile> でリーダーを差し替え（利用上限時: agy_opus_lead → codex_sol_lead）
 if [[ "${1:-}" == "--lead" ]]; then
   [[ -n "${2:-}" ]] || { echo "--lead にプロファイル名を指定してください（例: agy_opus_lead）" >&2; exit 1; }
   PROFILE="$2"; shift 2
 fi
 
-# 引数なしなら、置き場の配下はそのプロジェクト、それ以外は今いる git リポジトリ
+# 引数なしなら、置き場の配下はそのプロジェクト、他のリポジトリはそのルート、それ以外は既存セッション
 if [[ $# -eq 0 ]]; then
+  attach_existing=0
   case "$PWD/" in
     "$ROOT"/*/*) set -- "$(echo "${PWD#$ROOT/}" | cut -d/ -f1)" ;;
-    *) top=$(git rev-parse --show-toplevel 2>/dev/null) || { usage; exit 0; }; set -- "$top" ;;
+    *)
+      top=$(git rev-parse --show-toplevel 2>/dev/null || true)
+      if [[ -n "$top" && "$top" != "$HOME" && "$top" != / ]]; then
+        set -- "$top"
+      else
+        attach_existing=1
+      fi
+      ;;
   esac
 fi
 case "${1:-}" in
   -h|--help) usage; exit 0 ;;
   -l|--list) ls -1d "$ROOT"/*/ | xargs -n1 basename | grep -v '^z_archived$'; exit 0 ;;
 esac
+
+if [[ "${attach_existing:-0}" == 1 ]]; then
+  ensure_server
+  sessions=$(cao session list 2>/dev/null | awk '$1 ~ /^cao-/ {print $1}')
+  [[ -n "$sessions" ]] || { usage; exit 0; }
+  printf '%s\n' "$sessions"
+  BACKEND="$(cao config get terminal.backend 2>/dev/null | tr -d '"')"
+  HERDR_SESSION="$(cao config get terminal.herdr_session 2>/dev/null | tr -d '"')"; HERDR_SESSION="${HERDR_SESSION:-cao}"
+  if [[ -n "${HERDR_PANE_ID:-}${TMUX:-}" ]]; then
+    if [[ -n "${HERDR_PANE_ID:-}" ]]; then
+      echo "すでに herdr の中です。ワークスペース一覧から選んでください。"
+    else
+      echo "すでに tmux の中です。tmux のセッション一覧（Ctrl-b s）から選んでください。"
+    fi
+    exit 0
+  fi
+  if [[ "$BACKEND" == herdr ]]; then exec herdr --session "$HERDR_SESSION"; fi
+  exec tmux attach
+fi
 
 arg="$1"; shift
 # / を含むか . ならパス、それ以外は置き場 → ホーム直下の順で探す
@@ -57,14 +95,7 @@ if [[ -n "$exclude" ]] && ! grep -qxF '.cao/' "$exclude" 2>/dev/null; then
   echo '.cao/' >> "$exclude"
 fi
 
-# cao-server が止まっていれば systemd で起動して、最大 15 秒待つ
-if ! curl -sf http://localhost:9889/health >/dev/null; then
-  echo "cao-server を起動します…" >&2
-  systemctl --user start cao-server.service 2>/dev/null || true
-  for _ in $(seq 15); do curl -sf http://localhost:9889/health >/dev/null && break; sleep 1; done
-  curl -sf http://localhost:9889/health >/dev/null || {
-    echo "cao-server が起動できません。journalctl --user -u cao-server -n 30 で原因を確認してください。" >&2; exit 1; }
-fi
+ensure_server
 # 前回うまく動いたときから CLI が更新されていれば知らせる（止めはしない）
 command -v cao-doctor >/dev/null && { cao-doctor --brief >&2 || true; }
 
