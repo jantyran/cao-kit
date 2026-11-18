@@ -76,6 +76,15 @@ check grep -q -- "--session-name app --working-directory $tmp/home/projects/app 
 check grep -q -- "--session-name side --working-directory $tmp/home/side " <(dev side 'do')
 check grep -q -- "--session-name deep --working-directory $tmp/home/x/deep " <(dev "$tmp/home/x/deep" 'do')
 check grep -q -- "--session-name deep " <(cd "$tmp/home/x" && dev ./deep 'do')
+# herdr が止まっていれば起動してから launch する
+mkdir -p "$tmp/hd/bin"
+printf '#!/bin/sh\n[ "$1 $2 $3" = "config get terminal.backend" ] && echo herdr\n[ "$1" = launch ] && echo "LAUNCH $*"\nexit 0\n' > "$tmp/hd/bin/cao"
+printf '#!/bin/sh\ncase "$3" in status) [ -e "$HD_UP" ] && echo "status: running" ;; server) touch "$HD_UP" ;; esac\nexit 0\n' > "$tmp/hd/bin/herdr"
+cp "$tmp/dev/bin/curl" "$tmp/hd/bin/"; chmod +x "$tmp/hd/bin/"*
+out=$(HD_UP="$tmp/hd/up" HOME="$tmp/home" CAO_DEV_ROOT="$tmp/home/projects" PATH="$tmp/hd/bin:/usr/bin:/bin" TMUX= HERDR_PANE_ID= "$repo/bin/cao-dev" app 'do' 2>&1)
+check grep -q 'herdr（cao）が止まっているので起動します' <<< "$out"
+check grep -q 'LAUNCH ' <<< "$out"
+check test -e "$tmp/hd/up"
 if dev nothing 'do' > /dev/null 2>&1; then echo 'FAIL: unknown project accepted' >&2; exit 1; fi
 if dev "$tmp/home" 'do' > /dev/null 2>&1; then echo 'FAIL: home accepted' >&2; exit 1; fi
 # 同じ名前のセッションがあれば、同じフォルダなら追記、別のフォルダならエラー

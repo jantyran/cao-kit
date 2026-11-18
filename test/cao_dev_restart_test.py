@@ -58,6 +58,7 @@ case "$1 $2 $3" in
 esac
 ''',
                 'curl': f'''#!/bin/sh
+[ -n "$SESSION_JSON" ] && {{ echo "$SESSION_JSON"; exit 0; }}
 case "$*" in *sessions/*) printf '{{"terminals":[{{"working_directory":"{project}","agent_profile":"claude_opus_lead","tmux_window":"claude_opus_lead-3cc6","status":"%s"}}]}}' "$STATUS" ;; esac
 ''',
                 'tmux': '''#!/bin/sh
@@ -68,6 +69,7 @@ case "$*" in
   *'workspace list') echo '{"result":{"workspaces":[{"workspace_id":"w1","label":"cao-app"}]}}' ;;
   *'tab list') echo '{"result":{"tabs":[{"workspace_id":"w1","tab_id":"w1:t1","label":"claude_opus_lead-3cc6"}]}}' ;;
   *'pane list') printf '%s\\n' "$PANES" ;;
+  *'status server') echo 'status: running' ;;
 esac
 ''',
             }
@@ -102,6 +104,8 @@ esac
                     break
                 time.sleep(0.02)
             output = log.read_text()
+            self.assertLess(output.index('SHUTDOWN cao-app'), output.index('LAUNCH '))
+            output = subprocess.run([str(DEV), 'cao-app'], env=dict(env, SESSION_JSON='{"terminals":[]}'), text=True, capture_output=True, check=True).stdout
             self.assertLess(output.index('SHUTDOWN cao-app'), output.index('LAUNCH '))
             missing = subprocess.run([str(DEV), 'missing'], env=dict(env, CAO_DEV_ROOT=str(root/'absent')), capture_output=True, text=True)
             self.assertNotIn('No such file', missing.stderr)

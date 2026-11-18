@@ -26,6 +26,17 @@ ensure_server() {
       echo "cao-server が起動できません。journalctl --user -u cao-server -n 30 で原因を確認してください。" >&2; exit 1; }
   fi
 }
+# CAO は herdr を cao-server 起動時にしか立ち上げないので、途中で止まっていれば launch 前に立ち上げ直す
+ensure_herdr() {
+  [[ "$(cao config get terminal.backend 2>/dev/null | tr -d '"')" == herdr ]] || return 0
+  local hs; hs="$(cao config get terminal.herdr_session 2>/dev/null | tr -d '"')"; hs="${hs:-cao}"
+  herdr --session "$hs" status server 2>/dev/null | grep -q 'status: running' && return 0
+  echo "herdr（$hs）が止まっているので起動します…" >&2
+  rm -f "$HOME/.config/herdr/sessions/$hs/herdr.sock"  # 残った古いソケットを消す（cao-server.service と同じ）
+  setsid herdr --session "$hs" server >/dev/null 2>&1 < /dev/null &
+  for _ in $(seq 15); do herdr --session "$hs" status server 2>/dev/null | grep -q 'status: running' && return 0; sleep 1; done
+  echo "herdr（$hs）を起動できません。" >&2; exit 1
+}
 # --lead <profile> でリーダーを差し替え（利用上限時: agy_opus_lead → codex_sol_lead）
 if [[ "${1:-}" == "--lead" ]]; then
   [[ -n "${2:-}" ]] || { echo "--lead にプロファイル名を指定してください（例: agy_opus_lead）" >&2; exit 1; }
@@ -124,6 +135,8 @@ sess="cao-${name#cao-}"
 leader_exited() {
   local session_data terminal window status retry=${1:-1}
   session_data=$(curl -sf "http://localhost:9889/sessions/$sess") || return 1
+  # ターミナルが 0 件ならリーダーのいない残骸なので、終了扱いにして起動し直す
+  jq -e '.terminals | length == 0' <<< "$session_data" >/dev/null && return 0
   terminal=$(jq -ec '[.terminals[] | select((.agent_profile // "") | endswith("_lead"))][0] // .terminals[0] | select(type == "object")' <<< "$session_data") || return 1
   window=$(jq -er '.tmux_window | select(type == "string" and length > 0)' <<< "$terminal") || return 1
   status=$(jq -er '.status | select(type == "string" and length > 0)' <<< "$terminal") || return 1
@@ -193,6 +206,7 @@ if cao session list 2>/dev/null | grep -q "^$sess\b"; then
 fi
 
 "$kit/bin/cao-recap" "$dir" || true
+ensure_herdr  # 前のセッションを閉じたときに herdr ごと止まっていることがある
 
 if [[ $# -gt 0 ]]; then
   cao launch --agents "$PROFILE" --session-name "$name" --working-directory "$dir" \

@@ -22,7 +22,7 @@ case "$1 $2 $3" in
   'launch '* ) echo launch ;;
 esac
 ''',
-            'herdr': '#!/bin/sh\necho "herdr $*" >> "$LOG"\n',
+            'herdr': '#!/bin/sh\ncase "$*" in *"status server") echo "status: running"; exit 0 ;; esac\necho "herdr $*" >> "$LOG"\n',
             'tmux': '#!/bin/sh\necho "tmux $*" >> "$LOG"\n',
             'curl': '#!/bin/sh\nexit 0\n',
             'cao-doctor': '#!/bin/sh\nexit 0\n',

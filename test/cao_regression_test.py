@@ -146,7 +146,7 @@ class RecapRegressionTest(unittest.TestCase):
         fake = self.home / 'bin'
         fake.mkdir()
         for name, script in {
-            'curl': '#!/bin/sh\necho \'{"terminals":[]}\'\n',
+            'curl': '#!/bin/sh\necho \'{"terminals":[{"tmux_window":"w","status":"idle"}]}\'\n',
             'cao': '''#!/bin/sh
 case "$1 $2" in
   'session list') echo cao-project ;;
