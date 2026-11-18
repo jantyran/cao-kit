@@ -1,6 +1,6 @@
 # チームのロール設計とルーティング
 
-このページで分かること: 29 体のプロファイルの役割分担、モデル選択と格上げの規則、予備ロール、レビューと並列化のルール。
+このページで分かること: 30 体のプロファイルの役割分担、モデル選択と格上げの規則、予備ロール、レビューと並列化のルール。
 
 使用する AI は Claude（`claude_code`）・agy（`antigravity_cli`）・Codex（`codex`）の 3 系統のみ（Kiro は不使用）。リーダー規約の正本は `agents/team/claude_opus_lead.md`（および同期される `agy_opus_lead.md`、`codex_sol_lead.md`）。
 
@@ -14,7 +14,7 @@
 | P4 | **上位で考え、中位で書き、下位で調べる** | 足りる中で一番安いモデルを選びコストを抑える。調査担当は 20 行以内の要約と根拠パス／URL だけ返す |
 | P5 | **テスト作成の分離は重要変更のみ** | テスト改ざん（アサーションの弱体化）を防ぐため、重要変更では実装前に別担当がテストを書く |
 | P6 | **設計判断は指示書に書いて全員で共有** | 暗黙の判断の食い違いを防ぎ、ワーカーには指示書の絶対パスを渡す |
-| P7 | **差し戻しは 2 回まで** | 無限ループを防ぎ、2 回で収まらなければ 1 つ上の格の担当かユーザーへ引き継ぐ |
+| P7 | **差し戻しは luna が 1 回、他は 2 回まで** | 無限ループを防ぎ、上限に達した luna は terra へ、他は 2 回で収まらなければ 1 つ上の格の担当かユーザーへ引き継ぐ |
 
 ## リーダーとチームの使い分け
 
@@ -32,13 +32,14 @@
 
 | `agent_profile` | 用途 | コスト |
 |---|---|---|
-| `codex_luna_coder` | 小さい修正、1〜2 ファイルの変更、**指示書で手順まで決まっている作業**、テスト/lint 実行だけ、定型作業 | 低 |
+| `codex_luna_coder` | 指示書に「どのファイルの・何を・どう変えるか」まで書かれ、合否を確かめるテストが既にあるか不要な作業（文言・設定値の変更、決まった形の追加、既存パターンの複製）。境界条件やテストの設計を自分で決める必要がある、複数ファイルの整合が要る、実環境を確かめながら進める作業は terra。迷ったら terra | 低 |
 | `codex_terra_coder` | **標準の実装担当。実装は原則ここから始める**。機能追加・バグ修正・テスト作成・複数ファイルの変更 | 中 |
 | `codex_sol_coder` | `terra` で 2 回差し戻された作業のみ（最初から選ばない） | 中〜高 |
 | `codex_astra_coder` | `sol` で 2 回差し戻された作業のみ（最後の手段） | 高 |
 | `claude_sonnet_tester` / `codex_sol_tester`（予備） | 重要変更のみ、受け入れ条件から実装前にテストを作成（実装コードは書かない） | 中 |
-| `codex_sol_reviewer` | **標準のレビュー担当**（全実装・重要変更）。数行の修正では省略可 | 中 |
-| `codex_astra_reviewer` | `sol_reviewer` のレビューで 2 回まとまらない時のみ（最後の手段） | 高 |
+| `codex_sol_reviewer` | **標準のレビュー担当**（通常レビュー・再レビュー）。数行の修正では省略可 | 中 |
+| `codex_sol_deep_reviewer` | 重要変更、または `sol_reviewer` で 2 回まとまらない時 | 中〜高 |
+| `codex_astra_reviewer` | `deep_reviewer` のレビューで 2 回まとまらない時のみ（最後の手段） | 高 |
 | `agy_flash_researcher` | ちょっとした調べもの（API の使い方、エラーメッセージの意味など） | 低 |
 | `agy_hydrogen_researcher` | 深い調査（技術選定、比較、設計に影響する調査） | 中 |
 | `agy_argon_writer` | README・設計書・記事・リリースノートなどの文章（コードは変更しない） | 中 |
@@ -56,7 +57,7 @@
 |---|---|
 | `codex_luna_coder` | `agy_flash_coder` |
 | `codex_terra_coder` / `codex_sol_coder` / `codex_astra_coder` | `agy_sonnet_coder` |
-| `codex_sol_reviewer` / `codex_astra_reviewer` | `claude_sonnet_reviewer` |
+| `codex_sol_reviewer` / `codex_sol_deep_reviewer` / `codex_astra_reviewer` | `claude_sonnet_reviewer` |
 | `claude_sonnet_tester` | `codex_sol_tester` |
 | `agy_flash_researcher` / `agy_hydrogen_researcher` | `codex_luna_researcher` |
 | `agy_argon_writer` | `claude_sonnet_writer` |
@@ -79,18 +80,21 @@
    └─(重要変更のみ)─> テスト作成（実装とは別担当、先に書く）
 ```
 
-- **実装の格上げ順**: 差し戻しは同じ担当につき 2 回まで。超えたら `codex_luna_coder` → `codex_terra_coder` → `codex_sol_coder` → `codex_astra_coder` → ユーザーの順に格上げする。
+- **実装の格上げ順**: luna は差し戻し 1 回で terra へ移す。他の担当は同じ担当につき 2 回までで、超えたら `codex_terra_coder` → `codex_sol_coder` → `codex_astra_coder` → ユーザーの順に格上げする。
 - **原因不明の不具合**: 最初から上位モデルで書き換えず、まず `codex_terra_coder`（または `codex_sol_reviewer`）に読むだけの調査として依頼する。
 - **実装担当のテスト規律**: 実装担当（coder / frontend）は既存のテストを弱めたり消したりしてはならず、tester が先に書いたテストも変更しない。
 
 ## レビュー担当の選び方（P2）
 
-レビューは原則 `codex_sol_reviewer`（effort high）が担当し、受け入れ条件を 1 項目ずつ ○/× で判定して `APPROVE` または `REQUEST_CHANGES` を返す。
+レビューは原則 `codex_sol_reviewer`（effort medium）が担当し、受け入れ条件を 1 項目ずつ ○/× で判定して `APPROVE` または `REQUEST_CHANGES` を返す。
 
-| 実装した担当 | レビュー担当（主） | 予備 |
+| 場面 | レビュー担当（主） | 予備 |
 |---|---|---|
-| 全ての実装（luna / terra / sol / astra / frontend / agy 経由）、重要変更 | `codex_sol_reviewer`（effort high） | `claude_sonnet_reviewer` |
-| `sol_reviewer` で 2 回まとまらない時 | `codex_astra_reviewer` | `claude_sonnet_reviewer` |
+| 通常レビュー・再レビュー | `codex_sol_reviewer`（effort medium） | `claude_sonnet_reviewer` |
+| 重要変更、または `sol_reviewer` で 2 回まとまらない時 | `codex_sol_deep_reviewer`（effort high） | `claude_sonnet_reviewer` |
+| `deep_reviewer` で 2 回まとまらない時 | `codex_astra_reviewer`（effort high） | `claude_sonnet_reviewer` |
+
+再レビューでは「前回の指摘が直ったかと、その差分だけを見る」と範囲を指定する。reviewer はテストを実行せず、coder の報告とコードを突き合わせる。テストの再実行はリーダーが 1 回だけ行う。
 
 重要変更のうち認証・権限・決済・外部公開に関わるものは、別系統の `claude_sonnet_security` にもセキュリティ診断を依頼する。
 

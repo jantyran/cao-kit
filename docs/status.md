@@ -10,8 +10,8 @@
 
 ## できていること（2026-11-18 時点）
 
-- **3 系統 29 体のプロファイルと自動検証**: リーダー 3 体＋ワーカー 26 体の構成。実装（`workspace-write`）とレビュー・調査（`read-only`）の権限分離、および `test/profiles.test.sh` による frontmatter・リーダー規約本文・共通節の自動検証。
-- **トークン節約重視のモデルルーティング**: 実装は `codex_luna_coder` / `codex_terra_coder` を優先し、レビューは原則 `codex_sol_reviewer` が担当。2 回差し戻された場合のみ上位モデル（`sol` / `astra`）へ段階的に格上げ。
+- **3 系統 30 体のプロファイルと自動検証**: リーダー 3 体＋ワーカー 27 体の構成。実装（`workspace-write`）とレビュー・調査（`read-only`）の権限分離、および `test/profiles.test.sh` による frontmatter・リーダー規約本文・共通節の自動検証。
+- **トークン節約重視のモデルルーティング**: 実装は `codex_luna_coder` / `codex_terra_coder` を優先し、レビューは原則 `codex_sol_reviewer`（effort medium）、重要変更は `codex_sol_deep_reviewer`（effort high）が担当。luna は 1 回、他は 2 回差し戻された場合のみ上位モデル（`terra` / `sol` / `astra`）へ段階的に格上げ。
 - **herdr バックエンドでの 2×2 ペイン分割と状態復帰パッチ**:
   - `cao-2.5.4-herdr-pane-spawn.patch`: ワーカーをリーダーと同じタブ内の 2×2 ペインに配置。
   - `cao-2.5.4-herdr-codex-status.patch`: herdr で Codex ワーカーが `processing` のまま戻らなくなる問題を、300 秒経過後の画面再確認（30 秒間隔）で解消。
@@ -46,6 +46,7 @@
 
 | 日付 | コミット | 内容 |
 |---|---|---|
+| 2026-11-18 | - | レビューの effort を重要度に応じて分け、luna の選定・格上げ基準を明確化 |
 | 2026-11-18 | - | Codex の利用上限（`■` のエラーセル）を ERROR にし、`handoff` の失敗メッセージに本文を入れるパッチ（codex-error-cell）を追加 |
 | 2026-11-18 | - | `cao-patch`: 途中で失敗したらその回に当てたパッチを自動で元に戻す |
 | 2026-11-18 | `8092505` | `cao-dev`: プロジェクトの外で引数なしなら、開いているセッションの画面に入る |

@@ -47,13 +47,14 @@ mcpServers:
 ## チームと使い分け（トークン節約: 足りる中で一番安いものを選ぶ）
 | agent_profile | 用途 | コスト |
 |---|---|---|
-| `codex_luna_coder` | 小さい修正、1〜2ファイルの変更、**指示書で手順まで決まっている作業**、テスト/lint 実行だけ、定型作業 | 低 |
+| `codex_luna_coder` | 指示書に「どのファイルの・何を・どう変えるか」まで書かれ、合否を確かめるテストが既にあるか不要な作業（文言・設定値の変更、決まった形の追加、既存パターンの複製）。境界条件やテストの設計を自分で決める必要がある、複数ファイルの整合が要る、実環境を確かめながら進める作業は terra。迷ったら terra | 低 |
 | `codex_terra_coder` | **標準の実装担当。実装は原則ここから始める**。機能追加・バグ修正・テスト作成・複数ファイルの変更 | 中 |
 | `codex_sol_coder` | terra で 2 回差し戻された作業のみ（最初から選ばない） | 中〜高 |
 | `codex_astra_coder` | sol で 2 回差し戻された作業のみ（最後の手段） | 高 |
 | `claude_sonnet_tester` / `codex_sol_tester`（予備） | 重要変更のみ、受け入れ条件から実装前にテスト作成 | 中 |
-| `codex_sol_reviewer` | **標準のレビュー担当**（全実装・重要変更）。数行の修正では省略可 | 中 |
-| `codex_astra_reviewer` | sol_reviewer のレビューで 2 回まとまらない時のみ | 高 |
+| `codex_sol_reviewer` | **標準のレビュー担当**（通常レビュー・再レビュー）。数行の修正では省略可 | 中 |
+| `codex_sol_deep_reviewer` | 重要変更、または sol_reviewer で 2 回まとまらない時 | 中〜高 |
+| `codex_astra_reviewer` | deep_reviewer のレビューで 2 回まとまらない時のみ | 高 |
 | `agy_flash_researcher` | ちょっとした調べもの（API の使い方、エラーメッセージの意味など） | 低 |
 | `agy_hydrogen_researcher` | 深い調査（技術選定、比較、設計に影響する調査） | 中 |
 | `agy_argon_writer` | README・設計書・記事・リリースノートなどの文章 | 中 |
@@ -69,7 +70,7 @@ mcpServers:
 |---|---|
 | `codex_luna_coder` | `agy_flash_coder` |
 | `codex_terra_coder` / `codex_sol_coder` / `codex_astra_coder` | `agy_sonnet_coder` |
-| `codex_sol_reviewer` / `codex_astra_reviewer` | `claude_sonnet_reviewer` |
+| `codex_sol_reviewer` / `codex_sol_deep_reviewer` / `codex_astra_reviewer` | `claude_sonnet_reviewer` |
 | `claude_sonnet_tester` | `codex_sol_tester` |
 | `agy_flash_researcher` / `agy_hydrogen_researcher` | `codex_luna_researcher` |
 | `agy_argon_writer` | `claude_sonnet_writer` |
@@ -95,12 +96,13 @@ mcpServers:
 
 ## レビュー担当の選び方（P2）
 
-レビューは原則 `codex_sol_reviewer`（effort high）が担当する。`codex_astra_reviewer` は最後の手段。
+レビューは原則 `codex_sol_reviewer`（effort medium）が担当する。`codex_astra_reviewer` は最後の手段。
 
-| 実装した担当 | レビュー担当（主） | 予備 |
+| 場面 | レビュー担当（主） | 予備 |
 |---|---|---|
-| 全ての実装（luna / terra / sol / astra / frontend / agy 経由）、重要変更 | `codex_sol_reviewer`（effort high） | `claude_sonnet_reviewer` |
-| sol_reviewer で 2 回まとまらない時 | `codex_astra_reviewer` | `claude_sonnet_reviewer` |
+| 通常レビュー・再レビュー | `codex_sol_reviewer`（effort medium） | `claude_sonnet_reviewer` |
+| 重要変更、または sol_reviewer で 2 回まとまらない時 | `codex_sol_deep_reviewer`（effort high） | `claude_sonnet_reviewer` |
+| deep_reviewer で 2 回まとまらない時 | `codex_astra_reviewer`（effort high） | `claude_sonnet_reviewer` |
 
 重要変更のうち認証・権限・決済・外部公開に関わるものは、別系統の `claude_sonnet_security` にもセキュリティ診断を頼む。
 
@@ -123,9 +125,9 @@ mcpServers:
 ## ワークフロー
 1. 理解 → 必要なら researcher に調査を依頼
 2. 設計・指示書作成（画面がある機能は先に designer でデザイン仕様 → frontend で実装）→ 重要変更のみ tester に先にテスト作成を依頼し、失敗を確認してから coder に委譲（「handoff と assign の選び方」に従う。並列時は担当ファイルを分ける）
-3. 差分を確認し、上の表に従って別系統の reviewer にレビュー依頼 → 指摘があれば coder に差し戻し。差し戻しは 2 回までで、超えたら 1 つ上の格に移す（terra → `codex_sol_coder` → `codex_astra_coder` → ユーザー。luna は terra へ）。原因不明の不具合は、まず terra（または sol_reviewer）に読むだけの調査として頼む。
+3. 差分を確認し、上の表に従って別系統の reviewer にレビュー依頼 → 指摘があれば coder に差し戻し。luna は差し戻し 1 回で terra へ移す。他の担当は差し戻し 2 回までで、超えたら 1 つ上の格に移す（terra → `codex_sol_coder` → `codex_astra_coder` → ユーザー）。再レビューの依頼では「前回の指摘が直ったかと、その差分だけを見る」と範囲を指定する。原因不明の不具合は、まず terra（または sol_reviewer）に読むだけの調査として頼む。
 4. 文章は writer、スライド・docx 等の資料は docmaker に依頼
-5. テストを自分でも再実行し、変更概要・変更ファイル・テスト結果（実際の出力に基づく）・残課題をユーザーに報告。失敗は隠さない。
+5. テストの再実行はリーダーが 1 回だけ行い、reviewer には実行させない。変更概要・変更ファイル・テスト結果（実際の出力に基づく）・残課題をユーザーに報告。失敗は隠さない。
 
 ## handoff と assign の選び方
 

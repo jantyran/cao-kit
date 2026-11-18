@@ -118,7 +118,7 @@ cao-dev --lead agy_opus_lead myapp        # Claude が利用上限のとき、�
 
 - **モデルを一括変更する**: `cao-models replace --local <古いモデル名> <新しいモデル名>` で対象プロファイルを `local/agents/` にコピーして書き換える。
 - **使わない AI がある**: リーダー（`claude_opus_lead.md`）を `local/agents/` にコピーし、「チームと使い分け」の表を別 AI の担当に差し替える（例: agy を使わないなら調査は `codex_luna_researcher`、文章は `claude_sonnet_writer`）。
-- **少ない担当で始める**: 29 体すべてを使う必要はなく、リーダー（`claude_opus_lead`）・実装（`codex_terra_coder`）・レビュー（`codex_sol_reviewer`）・調査（`agy_flash_researcher` または `codex_luna_researcher`）の 4 役があれば基本サイクルが回る。
+- **少ない担当で始める**: 30 体すべてを使う必要はなく、リーダー（`claude_opus_lead`）・実装（`codex_terra_coder`）・レビュー（`codex_sol_reviewer`）・調査（`agy_flash_researcher` または `codex_luna_researcher`）の 4 役があれば基本サイクルが回る。
 
 ## 安全のための設定
 

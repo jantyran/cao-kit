@@ -10,7 +10,7 @@
 
 ## ディレクトリの地図
 
-- `agents/team/`: 役割分担チームのプロファイル（リーダー 3 体＋ワーカー 26 体の計 29 体）
+- `agents/team/`: 役割分担チームのプロファイル（リーダー 3 体＋ワーカー 27 体の計 30 体）
 - `agents/{claude,codex,agy}/`: 役割を固定しない汎用プロファイル
 - `bin/`: 運用コマンド（`cao-dev`, `cao-doctor`, `cao-models`, `cao-patch`, `cao-recap`, `cao-trace`）
 - `codex/`: Codex 用サンドボックス設定（書き込み可 `cao.config.toml`、読み取り専用 `cao-ro.config.toml`）
