@@ -1,0 +1,279 @@
+--- a/providers/codex.py
++++ b/providers/codex.py
+@@ -2,4 +2,8 @@
+ 
+ import asyncio
++import copy
++import hashlib
++import json
++import subprocess
+ import logging
+ import os
+@@ -30,4 +34,40 @@
+ 
+ logger = logging.getLogger(__name__)
++
++def _codex_rollout_paths(shell_pid: int, *, proc_root: Path = Path("/proc"),
++                         sessions_root: Optional[Path] = None) -> set[Path]:
++    """Find open rollouts belonging only to Codex descendants of this pane."""
++    if sessions_root is None:
++        sessions_root = Path(os.environ.get("CODEX_HOME", str(Path.home() / ".codex"))) / "sessions"
++    paths: set[Path] = set()
++    pending = [shell_pid]
++    seen: set[int] = set()
++    try:
++        sessions_root = sessions_root.resolve()
++        while pending:
++            pid = pending.pop()
++            if pid in seen:
++                continue
++            seen.add(pid)
++            process = proc_root / str(pid)
++            # Children may have been spawned by any thread in the process.
++            for task in (process / "task").iterdir():
++                pending.extend(int(child) for child in (task / "children").read_text().split())
++            if (process / "exe").readlink().name != "codex":
++                continue
++            for fd in (process / "fd").iterdir():
++                try:
++                    target = fd.readlink()
++                except FileNotFoundError:  # descriptor closed during the scan
++                    continue
++                if target.name.startswith("rollout-") and target.suffix == ".jsonl":
++                    target = target.resolve()
++                    if target.is_relative_to(sessions_root):
++                        paths.add(target)
++    except (OSError, ValueError):
++        # An incomplete scan cannot establish that the candidate is unique.
++        return set()
++    return paths
++
+ 
+ # Regex patterns for Codex output analysis
+@@ -1187,4 +1227,6 @@
+         self._buffer_epoch: Optional[int] = None
+         self._dispatch_message: Optional[str] = None
++        self._rollout_dispatch_message: Optional[str] = None
++        self._rollout_dispatch_boundary: Optional[tuple[Path, int, int, int, bytes]] = None
+         self._pre_dispatch_body: Optional[tuple[str, ...]] = None
+         self._attribution_available = False
+@@ -1221,4 +1263,6 @@
+             self._pre_dispatch_body = None
+             self._attribution_available = False
++            self._rollout_dispatch_message = None
++            self._rollout_dispatch_boundary = None
+ 
+     def mark_input_received(self) -> None:
+@@ -1230,4 +1274,6 @@
+             self._pre_dispatch_body = None
+             self._attribution_available = False
++            self._rollout_dispatch_message = None
++            self._rollout_dispatch_boundary = None
+ 
+     def mark_redelivery_received(self) -> None:
+@@ -1238,7 +1284,27 @@
+             self._pre_dispatch_body = None
+             self._attribution_available = False
++            self._rollout_dispatch_message = None
++            self._rollout_dispatch_boundary = None
+ 
+     def record_dispatched_message(self, message: str) -> None:
+         """Record the effective dispatch and a pre-send rendered baseline."""
++        with self._dispatch_lock:
++            self._rollout_dispatch_message = message
++            self._rollout_dispatch_boundary = None
++            try:
++                path = self._rollout_path()
++                if path is not None:
++                    with path.open("rb") as stream:
++                        stat = os.fstat(stream.fileno())
++                        # A record already being written belongs before this send.
++                        if stat.st_size:
++                            stream.seek(max(0, stat.st_size - 4096))
++                            prefix = stream.read(min(stat.st_size, 4096))
++                            if prefix.endswith(b"\n"):
++                                self._rollout_dispatch_boundary = (
++                                    path, stat.st_dev, stat.st_ino, stat.st_size,
++                                    hashlib.sha256(prefix).digest())
++            except Exception:
++                logger.debug("Could not capture Codex rollout boundary", exc_info=True)
+         if not self._ends_turns_with_footer:
+             return
+@@ -2457,4 +2523,161 @@
+         return "\n".join(composer_lines).rstrip()
+ 
++    def _rollout_shell_pid(self) -> Optional[int]:
++        """Resolve this terminal's shell, never an unscoped foreground process."""
++        from cli_agent_orchestrator.backends.base import TerminalBackendError
++        from cli_agent_orchestrator.backends.herdr_backend import HerdrBackend, _sanitize_herdr_args
++        from cli_agent_orchestrator.backends.tmux_backend import TmuxBackend
++
++        deadline = time.monotonic() + 2.0
++
++        def run(cmd):
++            remaining = deadline - time.monotonic()
++            if remaining <= 0:
++                raise subprocess.TimeoutExpired(cmd, 2.0)
++            return subprocess.run(cmd, capture_output=True, text=True, timeout=remaining)
++
++        backend = get_backend()
++        if isinstance(backend, HerdrBackend):
++            # Keep shared backend settings untouched; bound every resolution call.
++            backend = copy.copy(backend)
++
++            def run_herdr(args, check=True):
++                result = run(["herdr", "--session", backend.herdr_session]
++                             + _sanitize_herdr_args(args))
++                if check and result.returncode:
++                    raise TerminalBackendError("Codex rollout pane lookup failed")
++                return result
++
++            backend._run_herdr = run_herdr
++            pane = backend._resolve_pane_id_from_window(self.session_name, self.window_name)
++            result = backend._run_herdr(["pane", "process-info", "--pane", pane], check=False)
++            if result.returncode:
++                return None
++            pid = backend._parse_herdr_json(result.stdout)["process_info"]["shell_pid"]
++        elif isinstance(backend, TmuxBackend):
++            from cli_agent_orchestrator.clients.tmux import TERMINAL_MARK_OPTION
++            from cli_agent_orchestrator.utils.terminal import validate_tmux_name
++
++            server = backend._client.server
++            command = ["tmux"]
++            for flag, value in (("-f", server.config_file), ("-S", server.socket_path),
++                                ("-L", server.socket_name)):
++                if value:
++                    command.extend([flag, str(value)])
++            session = validate_tmux_name(self.session_name, "session_name")
++            result = run(command + ["list-panes", "-s", "-t", "=" + session, "-F",
++                                    "#{window_name}\t#{pane_id}\t#{pane_active}\t#{pane_pid}"])
++            if result.returncode:
++                return None
++            rows = [line.split("\t") for line in result.stdout.splitlines()]
++            if any(len(row) != 4 for row in rows):
++                return None
++            named = [row for row in rows if row[0] == self.window_name]
++            if named:
++                matches = [row[3] for row in named if row[2] == "1"]
++            else:
++                matches = []
++                for _, pane_id, _, pane_pid in rows:
++                    result = run(command + ["show-options", "-p", "-t", pane_id])
++                    if result.returncode:
++                        return None
++                    # Read the pane's own mark, not an inherited window option.
++                    if f"{TERMINAL_MARK_OPTION} {self.window_name}" in result.stdout.splitlines():
++                        matches.append(pane_pid)
++            if len(matches) != 1:
++                return None
++            pid = matches[0]
++        else:
++            return None
++        pid = int(pid)
++        return pid if pid > 0 else None
++
++    def _rollout_path(self) -> Optional[Path]:
++        """Return the single main rollout open in this pane's Codex processes."""
++        pid = self._rollout_shell_pid()
++        if pid is None:
++            return None
++        paths = set()
++        for path in _codex_rollout_paths(pid):
++            with path.open("rb") as stream:
++                row = json.loads(stream.readline(64 * 1024))
++            if not isinstance(row, dict) or row.get("type") != "session_meta":
++                return None
++            meta = row.get("payload")
++            if not isinstance(meta, dict) or not isinstance(meta.get("id"), str) or not meta["id"]:
++                return None
++            if "parent_thread_id" in meta or meta["id"] != meta.get("session_id"):
++                continue  # automatic approval conversations are not worker answers
++            paths.add(path)
++        if len(paths) != 1:
++            return None
++        return paths.pop()
++
++    def _last_rollout_answer(self) -> Optional[str]:
++        """Read only complete post-send records, with a 4 MiB ceiling."""
++        with self._dispatch_lock:
++            dispatch_id = self._logical_dispatch_id
++            dispatched = self._rollout_dispatch_message
++            boundary = self._rollout_dispatch_boundary
++        if boundary is None or not dispatched or not dispatched.strip():
++            return None
++        expected = " ".join(dispatched.split())
++        try:
++            path, device, inode, offset, digest = boundary
++            if self._rollout_path() != path:
++                return None
++            with path.open("rb") as stream:
++                stat = os.fstat(stream.fileno())
++                if (stat.st_dev, stat.st_ino) != (device, inode):
++                    return None
++                length = stat.st_size - offset
++                # ponytail: if the boundary falls outside the 4 MiB tail, use the screen.
++                if length <= 0 or length > 4 * 1024 * 1024:
++                    return None
++                stream.seek(max(0, offset - 4096))
++                if hashlib.sha256(stream.read(min(offset, 4096))).digest() != digest:
++                    return None  # same inode may have been truncated and rewritten
++                stream.seek(offset)
++                lines = stream.read(length).splitlines(keepends=True)
++            answer = None
++            matched = False
++            for line in lines:
++                if not line.endswith(b"\n"):
++                    continue  # an unfinished record may still be growing
++                try:
++                    row = json.loads(line)
++                    if not isinstance(row, dict) or row.get("type") != "response_item":
++                        continue
++                    payload = row.get("payload")
++                    if not isinstance(payload, dict) or payload.get("type") != "message":
++                        continue
++                    if payload.get("role") == "user":
++                        answer = None
++                        matched = False
++                        text = "".join(item["text"] for item in payload["content"]
++                                       if item.get("type") == "input_text")
++                        text = " ".join(text.split())
++                        # Compare the complete request, allowing CAO's appended callback.
++                        matched = text == expected or text.startswith(expected + " [Assigned by terminal ")
++                        continue
++                    if payload.get("role") != "assistant" or payload.get("phase") not in (None, "final", "final_answer"):
++                        continue
++                    if not matched:
++                        continue
++                    text = "".join(item["text"] for item in payload["content"]
++                                   if item.get("type") == "output_text")
++                    answer = text if text.strip() else None
++                except (ValueError, TypeError, KeyError, AttributeError):
++                    continue  # malformed/truncated records do not poison the tail
++            with self._dispatch_lock:
++                if (self._logical_dispatch_id != dispatch_id
++                        or self._rollout_dispatch_message != dispatched
++                        or self._rollout_dispatch_boundary is not boundary):
++                    return None
++            return answer
++        except Exception:
++            logger.debug("Codex rollout unavailable; using screen extraction", exc_info=True)
++            return None
++
+     def extract_last_message_from_script(self, script_output: str) -> str:
+         """Extract Codex's final response from terminal output.
+@@ -2468,4 +2691,8 @@
+         Fallback: use assistant marker based extraction when no user message is found.
+         """
++        answer = self._last_rollout_answer()
++        if answer is not None:
++            return answer
++
+         # Strip ALL terminal escape sequences, not just SGR colour codes. The
+         # narrow ANSI_CODE_PATTERN (``\x1b[...m``) leaves cursor-movement (H),
+@@ -2603,4 +2830,6 @@
+             self._pre_dispatch_body = None
+             self._attribution_available = False
++            self._rollout_dispatch_message = None
++            self._rollout_dispatch_boundary = None
+         # Remove the developer_instructions temp file written by _build_codex_command, if any --
+         # same convention claude_code.py's own cleanup() uses for its analogous .prompt file.

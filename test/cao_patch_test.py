@@ -29,6 +29,12 @@ class PatchTest(unittest.TestCase):
                 subprocess.run(command, cwd=self.pkg, check=True)
             else:
                 subprocess.run(['patch', '--batch', '--silent', '-F0', '-p1', '--forward', '--dry-run', '-i', str(applied_patch)], cwd=self.pkg, check=True, capture_output=True)
+        # Execute a verbatim temporary copy, never the repository CLI without args.
+        tool_root = self.root / 'tool'
+        (tool_root / 'bin').mkdir(parents=True)
+        self.patch_cli = tool_root / 'bin/cao-patch'
+        shutil.copy2(REPO / 'bin/cao-patch', self.patch_cli)
+        shutil.copytree(REPO / 'patches', tool_root / 'patches')
         self.patchfile = REPO / 'patches/cao-2.5.4-herdr-pane-spawn.patch'
         self.statusfile = REPO / 'patches/cao-2.5.4-herdr-codex-status.patch'
         self.fakebin = self.root / 'bin'
@@ -44,7 +50,7 @@ class PatchTest(unittest.TestCase):
 
     def run_patch(self, *args):
         import os
-        return subprocess.run([sys.executable, str(REPO / 'bin/cao-patch'), *args], env={**os.environ, 'PATH':f'{self.fakebin}:/usr/bin:/bin'}, text=True, capture_output=True)
+        return subprocess.run([sys.executable, str(self.patch_cli), *args], env={**os.environ, 'PATH':f'{self.fakebin}:/usr/bin:/bin'}, text=True, capture_output=True)
 
     def test_check_apply_repeat_and_reverse(self):
         before = (self.pkg / 'backends/herdr_backend.py').read_bytes()
