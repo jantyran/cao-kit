@@ -1,74 +1,83 @@
 # cao-trio
 
-[CLI Agent Orchestrator（CAO）](https://github.com/awslabs/cli-agent-orchestrator) で、**Claude Code・Codex・agy（Antigravity CLI）を役割分担させて開発するための設定一式**です。
+このページで分かること: `cao-trio` の全体像、導入手順、基本コマンド、自分用にカスタマイズする方法。AI エージェント向けの要点は [AGENTS.md](AGENTS.md) を参照。
 
-> **English summary:** A ready-to-use team of CAO agent profiles. A lead (Claude Opus) plans and delegates; Codex writes code, a different model family reviews it, Gemini-based agents research and write. Includes a launcher (`cao-dev`), read-only sandboxes for reviewers, and an installer that symlinks everything into place. Docs are in Japanese.
+[CLI Agent Orchestrator（CAO）](https://github.com/awslabs/cli-agent-orchestrator) で、**Claude Code・Codex・agy（Antigravity CLI）を役割分担させて開発するための設定・補助ツール・パッチ一式**。
+
+> **English summary:** A ready-to-use team of CAO agent profiles. A lead (Claude Opus) plans and delegates; Codex writes code, a read-only reviewer checks it independently, and Gemini-based agents research and write. Includes a session launcher (`cao-dev`), previous-session recap (`cao-recap`), CAO patches (`cao-patch`), read-only sandboxes for reviewers, and an installer that symlinks everything into place. Docs are in Japanese.
 
 ## どう動くか
 
 ```
 あなた ──依頼──> リーダー（Claude Opus）
                   │  設計して、仕事を振り分ける
-                  ├─> 調査（agy）        … 調べて要約だけ返す
-                  ├─> 実装（Codex）      … コードとテストを書く（サンドボックス内）
-                  ├─> レビュー（Codex）  … 実装より上の格が独立して確認（読み取り専用）
+                  ├─> 調査（agy）        … 調べて要約と根拠パスだけ返す
+                  ├─> 実装（Codex）      … コードとテストを書く（workspace-write）
+                  ├─> レビュー（Codex）  … 独立して確認（read-only）
                   └─> 文章・資料（agy / Claude）
                   │
-                  └─ diff とテスト結果を自分で確かめてから、あなたに報告
+                  └─ diff とテスト結果を自分で確かめてから報告
 ```
 
-- **足りる中で一番安いモデルを使う**：小さな修正は軽いモデル、難しい不具合だけ上位モデル。
-- **書く役と確かめる役を分ける**：レビュー担当は実装より上の格のモデル（terra の実装を sol が、sol の実装を astra が）で、ファイルを書けない設定で動きます。Claude のトークンを節約するため、Claude のレビュー担当は予備です。
-- **利用上限への備え**：主な役割ごとに別の AI の予備があります（リーダーは Claude → agy → Codex）。
+- **足りる中で一番安いモデルを使う**: 定型・小修正は `codex_luna_coder`、標準の実装は `codex_terra_coder` から始め、2 回差し戻されたときだけ `sol` → `astra` へ段階的に格上げする。
+- **書く役と確かめる役を分ける**: レビューは原則 `codex_sol_reviewer`（読み取り専用サンドボックス）が独立して担当し、`codex_astra_reviewer` は 2 回まとまらないときの最後の手段とする。Claude のトークンを節約するため Claude のレビュー担当は予備。
+- **利用上限への備え**: 主な役割ごとに別系統 AI の予備を持つ（リーダーは Claude → agy → Codex）。
+- **herdr での 2×2 ペイン表示**: パッチ適用により、ワーカーはリーダーと同じタブ内のペイン（最大 4 ペイン・2×2 グリッド、5 体目以降は別タブ）に並んで表示される。
 
-ロールの詳しい設計と根拠は [docs/roles.md](docs/roles.md) にあります。
+ロール設計とルーティングの詳細は [docs/roles.md](docs/roles.md)、内部構成とデータの流れは [docs/architecture.md](docs/architecture.md) を参照。
 
 ## 必要なもの
 
-- Linux（Ubuntu で確認）、bash、systemd のユーザーサービス
+- Linux（Ubuntu で確認）、bash、systemd ユーザーサービス、`patch`、Python 3
 - [uv](https://docs.astral.sh/uv/)（CAO のインストールに使用）
 - tmux（または herdr + jq）、curl
-- 使う AI の CLI と、それぞれのログイン
+- 使う AI の CLI とログイン
   - [Claude Code](https://docs.claude.com/en/docs/claude-code)（`claude`）
   - Codex CLI（`codex`）
   - Antigravity CLI（`agy`）
 
-3 つすべてなくても動きます。使わない AI がある場合は「[自分用に変える](#自分用に変える)」を見てください。
+3 つすべてが揃っていなくても動作する。使わない AI がある場合は「[自分用に変える](#自分用に変える)」を参照。
 
 ## はじめかた
 
 ```bash
-# 1. CAO を入れる
+# 1. CAO（2.5.4）を入れる
 uv tool install cli-agent-orchestrator
 export PATH="$HOME/.local/bin:$PATH"
 
-# 2. このリポジトリを取ってきて、インストール内容を確認してから実行
+# 2. リポジトリを取得し、内容を確認してからリンクを張る
 git clone https://github.com/jantyran/cao-trio.git
 cd cao-trio
 ./install.sh --dry-run
 ./install.sh
 
-# 3. cao-server を起動
+# 3. herdr を使う場合は CAO 2.5.4 用パッチを当てる
+cao-patch --check
+cao-patch
+
+# 4. cao-server を起動し、正常動作時の CLI バージョンを記録
 systemctl --user start cao-server.service
+cao-doctor --save
 
-# 4. 自分用の設定（プロジェクトの置き場など。既定は ~/projects）
-cp local.env.example local.env     # 中の CAO_DEV_ROOT="$HOME/code" などを書き換える
+# 5. 自分用の設定（プロジェクトの置き場など。既定は ~/projects）
+cp local.env.example local.env     # CAO_DEV_ROOT="$HOME/code" などを設定
 
-# 5. 作業したいプロジェクトで起動
-cao-dev myapp                      # ~/code/myapp でリーダーと対話を始める
+# 6. 作業したいプロジェクトで起動
+cao-dev myapp                      # ~/code/myapp でリーダーと対話を開始
 ```
 
-`install.sh` はファイルをコピーせず、シンボリックリンクを張ります。既存のファイルは `.bak-日時` に退避し、上書きしません。何をするかの詳細、systemd・Node.js・AppArmor の設定、元に戻す方法は [docs/setup.md](docs/setup.md) にあります。
+`install.sh` はファイルをコピーせずシンボリックリンクを張る（既存ファイルは `.bak-日時` に退避）。インストール処理・パッチ適用・systemd / Node.js / AppArmor / herdr の設定手順は [docs/setup.md](docs/setup.md) を参照。
 
 ## 使い方
 
 ```bash
-cao-dev --list                            # プロジェクト一覧
-cao-dev myapp                             # 対話で始める（既存セッションがあれば接続）
-cao-dev myapp "ログイン画面のバグを直して"  # 依頼だけ投げてバックグラウンドで実行
-cao-dev                                   # 置き場の中か git リポジトリの中なら名前を省略できる
+cao-dev --list                            # プロジェクト置き場の一覧
+cao-dev myapp                             # 対話で開始（既存セッションがあれば接続）
+cao-dev myapp "ログイン画面のバグを直して"  # 依頼だけ投げてバックグラウンドで非同期実行
+cao-dev                                   # 置き場配下や git リポジトリ内ならそのプロジェクトで起動
+                                          # それ以外の場所では、開いているセッションの画面に入る
 cao-dev ~/work/other                      # 置き場の外はパスで指定（~/other なら名前だけでも可）
-cao-dev --lead agy_opus_lead myapp        # Claude が利用上限のとき、予備のリーダーで起動
+cao-dev --lead agy_opus_lead myapp        # Claude が利用上限のとき、予備リーダーで起動
 ```
 
 | やりたいこと | コマンド（`~/code/myapp` の場合） |
@@ -77,127 +86,73 @@ cao-dev --lead agy_opus_lead myapp        # Claude が利用上限のとき、�
 | 追加で依頼する | `cao-dev myapp "続けてテストも足して"` |
 | セッションを終える | `cao shutdown --session cao-myapp` |
 
-セッション名は `cao-<プロジェクト名>` です。別のフォルダにある同じ名前のプロジェクトのセッションが動いていると、取り違えないようにエラーで止まります。
+`cao-dev` は起動時に次の処理を自動で行う（詳細は [docs/tools.md](docs/tools.md)）。
 
-### 困ったとき・後から調べたいとき
+- `cao-server` が停止していれば systemd で自動起動
+- `cao-doctor --brief` で CLI バージョン変化やパッチ未適用を通知
+- リーダーが終了してシェルに戻っている既存セッションを検出したら、`cao shutdown` で片付けてから再起動
+- `cao-recap` で前回の Claude 会話の要約を `<project>/.cao/last-session.md` に書き出し（リーダーに「前回の続き」と伝えると参照される）
+- `~/.codex/config.toml` にプロジェクトの trusted 設定を追加し、`.git/info/exclude` に `.cao/` を追加
+
+### 補助コマンド一覧
+
+各コマンドの詳しいオプションと動作は [docs/tools.md](docs/tools.md) を参照。
 
 | コマンド | 用途 |
 |---|---|
-| `cao-doctor` | cao-server と各 CLI の状態を確認。前回うまく動いたときから CLI のバージョンが変わっていれば知らせる |
-| `cao-doctor --save` | 問題なく動いたときに、今のバージョンの組み合わせを記録する |
-| `cao-trace myapp` | 誰が誰に何を頼み、何を返したかを一覧表示（終了して消えた担当者も含む） |
-| `cao-trace <terminal_id>` | その担当者の画面の記録を表示 |
-| `cao-models` | どのプロファイルがどのモデルを使っているかの一覧 |
-| `cao-models replace --local 古い名前 新しい名前` | モデル名を一括で置き換える（`local/agents` に書くので git pull で衝突しない） |
-
-CAO は各 CLI の画面を読んで動いているため、CLI の更新で急に動かなくなることがあります。`cao-dev` は起動のたびに `cao-doctor --brief` を実行し、記録時からバージョンが変わった CLI があれば表示します。cao-server が止まっていれば、systemd で自動的に起動します。
-
-`cao-dev` は起動時に次のことも自動で行います。
-
-- Codex の「このフォルダを信頼しますか」で止まらないよう、`~/.codex/config.toml` にプロジェクトを trusted として追加
-- リーダーの指示書置き場 `.cao/` を、そのプロジェクトの `.git/info/exclude` に追加（コミットされません）
+| `cao-dev` | プロジェクト別セッションの起動・再接続・終了済みリーダーの片付けと再起動 |
+| `cao-recap` | 直近の Claude 会話履歴から要約 `<project>/.cao/last-session.md` を生成 |
+| `cao-doctor` | `cao-server`・各 CLI・パッチ適用状態の確認と、正常動作時のバージョン記録（`--save`） |
+| `cao-patch` | CAO 2.5.4 本体へのパッチ適用・状態確認（`--check`）・逆適用（`--reverse`） |
+| `cao-trace` | セッション内の委譲ツリー・結果・各ターミナルの画面ログを表示 |
+| `cao-models` | プロファイルのモデル一覧表示と一括置換（`replace --local`） |
 
 ## 自分用に変える
 
-自分用の変更は、git 管理外の 2 か所だけに書きます。cao-trio のファイルには触らないので、`git pull` で更新しても衝突しません。
+自分用の変更は git 管理外の 2 か所に置くため、`git pull` で衝突しない。
 
 | 置き場 | 書くもの |
 |---|---|
 | `local.env` | プロジェクトの置き場（`CAO_DEV_ROOT`）、既定のリーダー（`CAO_DEV_LEAD`） |
-| `local/agents/` | 変えたいプロファイルのコピー。同じ名前なら、こちらが優先して使われる |
+| `local/agents/` | 上書き・追加したいプロファイル（同名ならこちらが優先） |
 
-### 設定（local.env）
-
-```bash
-cp local.env.example local.env
-```
-
-`cao-dev` と定期実行（`flows/`）の両方がこのファイルを読みます。環境変数で指定した値はこちらより優先され、1 回だけリーダーを変えるなら `--lead` を使います。
-
-### プロファイルを変える（local/agents）
-
-変えたいプロファイルを `local/agents/` にコピーして編集します。
-
-```bash
-cp agents/team/codex_terra_coder.md local/agents/
-vi local/agents/codex_terra_coder.md        # モデル・指示などを自由に変える
-```
-
-元に戻すときは、そのファイルを消すだけです。動いているセッションには、起動し直すと反映されます。
-
-**モデルを一斉に変える**ときは、次のコマンドが該当するプロファイルを `local/agents/` にコピーして書き換えます。使えるモデル名は、契約しているプランと各 CLI のバージョンで変わります。
-
-```bash
-cao-models                                         # 今のモデルの一覧（* は local の上書き）
-cao-models replace --local gpt-6.1-sol 新しい名前
-```
-
-**使わない AI がある**場合は、リーダー（`claude_opus_lead.md`）を `local/agents/` にコピーし、本文の「チームと使い分け」の表で、その AI の担当を別の担当に置き換えます。たとえば agy を使わないなら、調査は `codex_luna_researcher`、文章は `claude_sonnet_writer` にします。
-
-**担当を増やす**ときは、既存のプロファイルを `local/agents/` にコピーして `name:`・`description:`・本文を書き換え、リーダーの表に 1 行足します。守るべき決まりは次のとおりです。`bash test/profiles.test.sh` は `local/agents/` も確認します。
-
-- `provider` は `claude_code` / `codex` / `antigravity_cli` のどれか
-- Claude Code は `permissionMode: auto`
-- Codex は `codexProfile: cao`（読み取り専用の役なら `cao-ro`）
-- `allowedTools` に `"*"` を入れない
-
-### まずは少ない担当で始める
-
-担当は 29 体いますが、全部を使う必要はありません。リーダーは仕事に合わせて選ぶので、最初は次の 4 役が動けば十分です。ほかの担当は、必要な場面でだけ使われます。
-
-| 役 | 担当 | 使う CLI |
-|---|---|---|
-| リーダー | `claude_opus_lead` | Claude Code |
-| 実装 | `codex_terra_coder` | Codex |
-| レビュー | `codex_sol_reviewer` | Codex |
-| 調査 | `agy_flash_researcher`（agy がなければ `codex_luna_researcher`） | agy / Codex |
+- **モデルを一括変更する**: `cao-models replace --local <古いモデル名> <新しいモデル名>` で対象プロファイルを `local/agents/` にコピーして書き換える。
+- **使わない AI がある**: リーダー（`claude_opus_lead.md`）を `local/agents/` にコピーし、「チームと使い分け」の表を別 AI の担当に差し替える（例: agy を使わないなら調査は `codex_luna_researcher`、文章は `claude_sonnet_writer`）。
+- **少ない担当で始める**: 29 体すべてを使う必要はなく、リーダー（`claude_opus_lead`）・実装（`codex_terra_coder`）・レビュー（`codex_sol_reviewer`）・調査（`agy_flash_researcher` または `codex_luna_researcher`）の 4 役があれば基本サイクルが回る。
 
 ## 安全のための設定
 
-| AI | 起動のしかた | 制限 |
+| AI | 起動設定 | 制限 |
 |---|---|---|
-| Codex | `codexProfile: cao` | 作業フォルダ内だけ書き込める。ネットワークは遮断。承認は自動レビューが判断 |
-| Codex（レビュー・調査） | `codexProfile: cao-ro` | 読み取り専用 |
-| Claude Code | `permissionMode: auto` | 危険な操作を分類器が止める。レビュー担当はファイルを書けない |
-| agy | CAO が常に全自動許可で起動 | **制限なし**（プロンプトでの指示だけ） |
+| Codex（実装） | `codexProfile: cao` | 作業フォルダ内のみ書き込み可（`workspace-write`）、ネット遮断、承認は `auto_review` |
+| Codex（レビュー・調査・振り返り） | `codexProfile: cao-ro` | 読み取り専用（`read-only`） |
+| Claude Code | `permissionMode: auto` | 危険な操作を分類器が阻止。`role: reviewer` は書き込みツール禁止 |
+| agy | CAO が常時自動許可で起動 | **制限なし**（プロンプトの指示のみ） |
 
-`cao-dev` は `--auto-approve` 付きで起動します。信頼できるプロジェクトだけで使ってください。agy の担当者は Web の内容を読みつつコマンドも実行できるため、気になる場合は agy を使わない構成にしてください。
+サンドボックスと MCP 承認設定の詳細は [docs/architecture.md](docs/architecture.md) を参照。
 
-## リポジトリの中身
+## ドキュメント一覧
 
-| パス | 内容 |
+| ドキュメント | 内容 |
 |---|---|
-| `agents/team/` | チームのプロファイル（リーダー 3 体＋担当 26 体） |
-| `agents/{claude,codex,agy}/` | 役割を決めない汎用プロファイル |
-| `skills/` | 共有スキル（ponytail：最小の変更で解くための指針） |
-| `bin/cao-dev` | プロジェクトごとのセッション起動コマンド |
-| `bin/cao-doctor`、`bin/cao-trace`、`bin/cao-models` | 状態確認、作業の追跡、モデル名の管理 |
-| `codex/` | Codex のサンドボックス設定（書き込み用・読み取り専用） |
-| `system/` | systemd ユニットと AppArmor 設定のテンプレート |
-| `flows/` | 定期実行のサンプル（毎週、未コミットのリポジトリを要約） |
-| `workflows/` | ワークフローのサンプル（差分の要約 → レビュー） |
-| `docs/` | [ロール設計](docs/roles.md)、[セットアップ詳細](docs/setup.md) |
-| `local.env.example` | 自分用の設定のひな形（コピーした `local.env` と `local/` は git 管理外） |
-| `test/` | インストーラーとプロファイルの検証 |
+| [AGENTS.md](AGENTS.md) | AI エージェント向けの入口（ディレクトリ地図・テスト・変更ルール） |
+| [docs/architecture.md](docs/architecture.md) | 構成要素、セッションとペインの構造、委譲とメッセージ配送、サンドボックス、パッチの仕組み |
+| [docs/roles.md](docs/roles.md) | チームのロール設計原則、担当一覧、予備ロール、レビューと並列化の規約 |
+| [docs/setup.md](docs/setup.md) | `install.sh` の処理、パッチ適用と再起動、systemd・AppArmor・herdr 設定 |
+| [docs/tools.md](docs/tools.md) | `bin/` の全 6 コマンドの詳しい使い方と内部動作 |
+| [docs/status.md](docs/status.md) | プロジェクトの目標、達成状況、既知の課題と回避策、主な変更履歴 |
 
-## 更新とテスト
-
-リンクなので、ファイルを編集するとすぐ反映されます。ただし動いているセッションは起動時の設定のままなので、`cao shutdown --session …` してから起動し直してください。
+## テスト
 
 ```bash
-bash test/install.test.sh    # 一時 HOME で install.sh を検証（本物の HOME は変更しない）
-bash test/profiles.test.sh   # プロファイルの決まりと、リーダー 3 体の本文のずれを検証
-bash test/tools.test.sh      # cao-doctor / cao-trace / cao-models を一時コピーで検証
+bash test/install.test.sh
+bash test/profiles.test.sh
+bash test/tools.test.sh
+PY=~/.local/share/uv/tools/cli-agent-orchestrator/bin/python
+for t in test/*_test.py; do PYTHONDONTWRITEBYTECODE=1 $PY "$t"; done
+# 実機の herdr を使う確認（別名の herdr セッションで動く）: test/herdr_pane_live.py
 ```
-
-CLI を更新したら、`cao-doctor` で確認し、問題なく動いたら `cao-doctor --save` で記録し直してください。
-
-## 注意
-
-- プロファイルの本文は日本語です。リーダーも日本語で報告します。
-- 一部のプロファイルは、Claude Code の [superpowers](https://github.com/obra/superpowers) プラグインのスキルを使うよう書かれています。入っていなくても動きますが、該当の手順は飛ばされます。
-- 個人の環境に合わせて作ったものです。CAO や各 CLI の更新で動かなくなることがあります。
 
 ## ライセンス
 
-`skills/ponytail*` は [DietrichGebert/ponytail](https://github.com/DietrichGebert/ponytail)（MIT）を元にしています。詳細は [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) を参照してください。
+`skills/ponytail*` は [DietrichGebert/ponytail](https://github.com/DietrichGebert/ponytail)（MIT）を元にしている。詳細は [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) を参照。
